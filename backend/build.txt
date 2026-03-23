@@ -1,0 +1,11 @@
+﻿src/routes/order.ts(65,22): error TS2322: Type 'string | string[]' is not assignable to type 'string | undefined'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/order.ts(85,22): error TS2322: Type 'string | string[]' is not assignable to type 'string | undefined'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/order.ts(102,22): error TS2322: Type 'string | string[]' is not assignable to type 'string | undefined'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/payment.ts(66,22): error TS2322: Type 'string | string[]' is not assignable to type 'string | undefined'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/payment.ts(83,38): error TS2551: Property 'order' does not exist on type '{ id: string; createdAt: Date; updatedAt: Date; status: string; orderId: string; amount: number; receiptImgUrl: string | null; transactionId: string | null; waiterVerified: boolean; }'. Did you mean 'orderId'?
+src/routes/session.ts(104,22): error TS2322: Type 'string | string[]' is not assignable to type 'string | undefined'.
+  Type 'string[]' is not assignable to type 'string'.

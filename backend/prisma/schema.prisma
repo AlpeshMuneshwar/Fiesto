@@ -1,0 +1,199 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Cafe {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique // used for URLs e.g. cafeqr.com/cafe/slug
+  logoUrl     String?
+  address     String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  tables      Table[]
+  menuItems   MenuItem[]
+  orders      Order[]
+  sessions    Session[]
+  staffCalls  StaffCall[]
+  settings    CafeSettings?
+}
+
+model CafeSettings {
+  id                    String  @id @default(uuid())
+  cafeId                String  @unique
+
+  // Payment Workflow: WAITER_AT_TABLE | PAY_AT_COUNTER | BOTH
+  paymentMode           String  @default("WAITER_AT_TABLE")
+
+  // Tax & Charges
+  taxEnabled            Boolean @default(false)
+  taxRate               Float   @default(0)
+  taxLabel              String  @default("GST")
+  taxInclusive          Boolean @default(false)
+  serviceChargeEnabled  Boolean @default(false)
+  serviceChargeRate     Float   @default(0)
+
+  // Feature Toggles
+  customerCanCallWaiter Boolean @default(true)
+  specialInstructions   Boolean @default(true)
+  locationVerification  Boolean @default(false)
+  autoAcceptOrders      Boolean @default(false)
+  showPrepTime          Boolean @default(false)
+  avgPrepTimeMinutes    Int     @default(15)
+  dietaryTagsEnabled    Boolean @default(true)
+  menuImagesEnabled     Boolean @default(true)
+
+  // Currency
+  currency              String  @default("INR")
+  currencySymbol        String  @default("₹")
+
+  // Reservations & Pre-booking (Phase 4)
+  platformFeeAmount   Float   @default(10.0)
+  preOrderAdvanceRate Float   @default(30.0) // percentage
+  reservationsEnabled Boolean @default(true)
+
+  cafe                  Cafe    @relation(fields: [cafeId], references: [id])
+}
+
+model User {
+  id        String   @id @default(uuid())
+  cafeId    String?
+  name      String
+  email     String   @unique
+  password  String
+  role      String   @default("WAITER") // SUPER_ADMIN, ADMIN, WAITER, CHEF
+  isActive  Boolean  @default(true)
+  pushToken String?  // Expo push notification token
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  cafe      Cafe?    @relation(fields: [cafeId], references: [id])
+  approvedOrders Order[] @relation("WaiterApprovals")
+  sessions  Session[]
+}
+
+model Table {
+  id        String   @id @default(uuid())
+  cafeId    String
+  number    Int
+  capacity  Int      @default(4)
+  qrCodeUrl String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cafe      Cafe     @relation(fields: [cafeId], references: [id])
+  sessions  Session[]
+  staffCalls StaffCall[]
+
+  @@unique([cafeId, number])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  cafeId    String
+  tableId   String
+  customerId String?
+  isActive  Boolean  @default(true)
+  isPrebooked Boolean @default(false)
+  deviceIdentifier String?
+  joinCode  String?
+  scheduledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cafe      Cafe     @relation(fields: [cafeId], references: [id])
+  table     Table    @relation(fields: [tableId], references: [id])
+  customer  User?    @relation(fields: [customerId], references: [id])
+  orders    Order[]
+  staffCalls StaffCall[]
+}
+
+model Order {
+  id                  String   @id @default(uuid())
+  cafeId              String
+  sessionId           String
+  waiterId            String?
+  status              String   @default("PENDING_APPROVAL")
+  isLocationVerified  Boolean  @default(false)
+  items               String   // JSON stringified array of order items
+  specialInstructions String?  // "No onions, extra spicy"
+  
+  // Pricing
+  subtotal            Float    @default(0)
+  taxAmount           Float    @default(0)
+  serviceCharge       Float    @default(0)
+  platformFee         Float    @default(0)
+  totalAmount         Float    // grandTotal
+  
+  // Pre-ordering
+  isPreorder          Boolean  @default(false)
+  advancePaid         Float    @default(0)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  cafe    Cafe    @relation(fields: [cafeId], references: [id])
+  session Session @relation(fields: [sessionId], references: [id])
+  waiter  User?   @relation("WaiterApprovals", fields: [waiterId], references: [id])
+  payment Payment?
+}
+
+model StaffCall {
+  id        String   @id @default(uuid())
+  cafeId    String
+  tableId   String
+  sessionId String
+  type      String   @default("WAITER_CALL") // WAITER_CALL, CHEF_CALL
+  status    String   @default("PENDING")     // PENDING, ACKNOWLEDGED, COMPLETED
+  message   String?
+  staffId   String?  // Waiter who acknowledged
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cafe    Cafe    @relation(fields: [cafeId], references: [id])
+  table   Table   @relation(fields: [tableId], references: [id])
+  session Session @relation(fields: [sessionId], references: [id])
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  orderId        String        @unique
+  amount         Float
+  status         String        @default("PENDING")
+  receiptImgUrl  String?
+  transactionId  String?
+  waiterVerified Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  order Order     @relation(fields: [orderId], references: [id])
+}
+
+model MenuItem {
+  id          String   @id @default(uuid())
+  cafeId      String
+  name        String
+  desc        String   @default("")
+  price       Float
+  category    String   @default("General")
+  imageUrl    String?  // menu item photo URL
+  dietaryTag  String?  // VEG, NON_VEG, VEGAN, EGGETARIAN
+  isAvailable Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cafe        Cafe     @relation(fields: [cafeId], references: [id])
+}
