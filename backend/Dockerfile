@@ -5,6 +5,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Prisma engines need OpenSSL available during generate/build.
+RUN apk add --no-cache openssl
+
 # Copy package files first for better layer caching
 COPY package.json package-lock.json ./
 
@@ -28,6 +31,9 @@ RUN npm run build
 FROM node:20-alpine AS production
 
 WORKDIR /app
+
+# Prisma CLI/runtime needs OpenSSL for migrations and client engines.
+RUN apk add --no-cache openssl
 
 # Install only production dependencies
 COPY package.json package-lock.json ./

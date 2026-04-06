@@ -17,7 +17,7 @@
 services:
   # ----- MySQL Database -----
   cafeqr-db:
-    image: mysql:8.0
+    image: mariadb:10.6
     container_name: cafeqr-db
     restart: unless-stopped
     environment:
@@ -32,7 +32,7 @@ services:
     networks:
       - cafeqr-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pcafeqr_secure_pass_2026"]
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "root", "-pcafeqr_secure_pass_2026"]
       interval: 10s
       timeout: 5s
       retries: 10
