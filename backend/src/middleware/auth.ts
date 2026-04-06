@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { prisma } from '../prisma';
 
 // Fail-fast: crash immediately if JWT_SECRET is not configured
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -14,7 +15,7 @@ export interface AuthRequest extends Request {
     user?: { id: string; role: string; cafeId: string; name: string };
 }
 
-export const authenticate = (req: AuthRequest, res: Response, next: NextFunction): void => {
+export const authenticate = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     const authHeader = req.header('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         res.status(401).json({ error: 'Access denied. No token provided.' });
@@ -36,11 +37,26 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
             return;
         }
 
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.id },
+            select: { id: true, role: true, cafeId: true, name: true, isActive: true },
+        });
+
+        if (!user) {
+            res.status(401).json({ error: 'User not found.' });
+            return;
+        }
+
+        if (!user.isActive) {
+            res.status(423).json({ error: 'This account has been locked by the admin. Please contact the cafe administrator to continue.' });
+            return;
+        }
+
         req.user = { 
-            id: decoded.id, 
-            role: decoded.role, 
-            cafeId: decoded.cafeId,
-            name: decoded.name 
+            id: user.id,
+            role: user.role,
+            cafeId: user.cafeId || '',
+            name: user.name,
         };
         next();
     } catch (error: any) {

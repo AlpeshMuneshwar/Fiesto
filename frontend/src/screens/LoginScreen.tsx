@@ -1,73 +1,166 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Platform, ScrollView, useWindowDimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 import client from '../api/client';
 import useApi from '../hooks/useApi';
+import useCooldownTimer from '../hooks/useCooldownTimer';
 import ResponsiveContainer from '../components/ResponsiveContainer';
+import { useToast } from '../components/ToastProvider';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 
+function decodeJwtPayload(token?: string) {
+    if (!token) return null;
+    try {
+        const base64 = token.split('.')[1];
+        if (!base64) return null;
+        const normalized = base64.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+        if (typeof globalThis.atob !== 'function') return null;
+        return JSON.parse(globalThis.atob(padded));
+    } catch {
+        return null;
+    }
+}
+
+function normalizeAuthResponse(data: any) {
+    const token = data?.token || data?.accessToken || data?.data?.token || data?.data?.accessToken || null;
+    const refreshToken = data?.refreshToken || data?.data?.refreshToken || null;
+    const nestedUser = data?.user || data?.data?.user || null;
+    const fallbackUser = nestedUser || data?.data || data || null;
+    const decoded = decodeJwtPayload(token || undefined);
+
+    const user = fallbackUser
+        ? {
+            ...fallbackUser,
+            role: fallbackUser.role || decoded?.role || null,
+            cafeId: fallbackUser.cafeId ?? decoded?.cafeId ?? null,
+            id: fallbackUser.id ?? decoded?.id ?? null,
+            name: fallbackUser.name ?? decoded?.name ?? null,
+            email: fallbackUser.email ?? null,
+        }
+        : decoded
+            ? {
+                id: decoded.id ?? null,
+                name: decoded.name ?? null,
+                email: null,
+                role: decoded.role ?? null,
+                cafeId: decoded.cafeId ?? null,
+            }
+            : null;
+
+    return { token, refreshToken, user };
+}
+
 export default function LoginScreen({ navigation, route }: any) {
+    const { width } = useWindowDimensions();
+    const isWide = width > 980;
+    const showCustomPasswordToggle = Platform.OS !== 'web';
+    const toast = useToast();
+    const initialCooldownSeconds = route.params?.cooldownUntil
+        ? Math.max(0, Math.ceil((route.params.cooldownUntil - Date.now()) / 1000))
+        : 0;
+    const {
+        secondsLeft: otpCooldownSeconds,
+        isCoolingDown: isOtpCooldownActive,
+        startCooldown: startOtpCooldown,
+    } = useCooldownTimer(initialCooldownSeconds);
+
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [otp, setOtp] = useState('');
     const [isOtpMode, setIsOtpMode] = useState(false);
+    const [isPasswordVisible, setIsPasswordVisible] = useState(false);
     const [showingVerification, setShowingVerification] = useState(false);
-    const isCustomerMode = route.params?.loginMode === 'customer';
-    const loginTitle = isCustomerMode ? 'Client Login' : 'Staff Login';
-    const loginSubtitle = isCustomerMode
-        ? 'Log in to manage bookings, explore cafes, and continue your dining journey.'
-        : 'Access the waiter, chef, admin, and super admin dashboards.';
 
-    React.useEffect(() => {
-        if (route.params?.email) {
-            setEmail(route.params.email);
-        }
-        if (route.params?.showingVerification) {
-            setShowingVerification(true);
-        }
+    const isCustomerMode = route.params?.loginMode === 'customer';
+    const title = showingVerification ? 'Verify your email' : isCustomerMode ? 'Client Login' : 'Staff Login';
+    const badge = showingVerification ? 'ACCOUNT VERIFICATION' : isCustomerMode ? 'CLIENT ACCESS' : 'STAFF ACCESS';
+    const subtitle = showingVerification
+        ? `We sent a verification code to ${email || 'your email address'}. Enter it below to activate the account.`
+        : isCustomerMode
+            ? 'Use a cleaner login flow for bookings, cafe discovery, and account continuity.'
+            : 'Access waiter, chef, admin, and super admin dashboards from one structured workspace.';
+
+    const accessNotes = showingVerification
+        ? [
+            'A verification code was sent to your email address.',
+            'Enter the 6-digit code below to activate your account.',
+            'If needed, resend the code from this screen and then return to login.',
+        ]
+        : isCustomerMode
+            ? [
+                'Password and OTP login work only for existing client accounts.',
+                'If you are new, create a client account first and verify your email.',
+                'Use Scan Table if you are joining directly from a cafe QR code.',
+            ]
+            : [
+                'Staff login works only for accounts already created by the admin.',
+                'OTP login is for existing waiter, chef, admin, and super admin accounts.',
+                'If you need the customer flow, use Scan Table or create a client account.',
+            ];
+
+    const featureNotes = isCustomerMode
+        ? [
+            'Manage bookings and return visits faster.',
+            'Browse cafes and continue your dining flow.',
+            'Use password or OTP after your account has been created and verified.',
+        ]
+        : [
+            'Open operational dashboards from one entry point.',
+            'Keep kitchen, waiter, and admin access in sync.',
+            'Use OTP as a fallback on staff accounts that already exist.',
+        ];
+
+    useEffect(() => {
+        if (route.params?.email) setEmail(route.params.email);
+        if (route.params?.showingVerification) setShowingVerification(true);
     }, [route.params]);
-    
-    // API Hooks
-    const { loading, error, execute: login } = useApi(
-        (data) => client.post('/auth/login', data, { 
-            showSuccessToast: true, 
-            successMessage: 'Welcome back!' 
-        })
+
+    const { loading, error: loginError, execute: login } = useApi(
+        (data) => client.post('/auth/login', data),
+        {
+            onError: (err) => {
+                if (err?.response?.data?.needsVerification) {
+                    setShowingVerification(true);
+                }
+            },
+        }
     );
 
-    const { loading: otpLoading, execute: sendOtpAction } = useApi(
+    const { loading: otpLoading, error: otpRequestError, execute: sendOtpAction } = useApi(
         (data) => client.post('/auth/request-otp', data, {
             showSuccessToast: true,
-            successMessage: 'OTP sent to your email'
-        })
+            successMessage: showingVerification ? 'Verification code sent to your email' : 'OTP sent to your email',
+        }),
+        {
+            onSuccess: () => startOtpCooldown(60),
+            onError: (err) => {
+                const retryAfterSeconds = err?.response?.data?.retryAfterSeconds;
+                if (retryAfterSeconds) {
+                    startOtpCooldown(retryAfterSeconds);
+                }
+            },
+        }
     );
 
-    const { loading: verifyLoading, execute: verifyEmailAction } = useApi(
-        (data) => client.post('/auth/verify-email', data, {
-            showSuccessToast: true,
-            successMessage: 'Email verified! You can now login.'
-        })
+    const { loading: verifyLoading, error: verifyError, execute: verifyEmailAction } = useApi(
+        (data) => client.post('/auth/verify-email', data, { showSuccessToast: true, successMessage: 'Email verified! You can now login.' })
     );
 
-    const { loading: otpLoginLoading, execute: loginOtpAction } = useApi(
-        (data) => client.post('/auth/login-otp', data, {
-            showSuccessToast: true,
-            successMessage: 'Welcome back!'
-        })
+    const { loading: otpLoginLoading, error: otpLoginError, execute: loginOtpAction } = useApi(
+        (data) => client.post('/auth/login-otp', data)
     );
 
     const registerPushToken = async () => {
         try {
-            if (Platform.OS === 'web') return;
-            if (!Device.isDevice) return;
-            
+            if (Platform.OS === 'web' || !Device.isDevice) return;
             const { status } = await Notifications.getPermissionsAsync();
             if (status !== 'granted') {
                 const { status: newStatus } = await Notifications.requestPermissionsAsync();
                 if (newStatus !== 'granted') return;
             }
-
             const tokenData = await Notifications.getExpoPushTokenAsync();
             await client.post('/auth/push-token', { pushToken: tokenData.data });
         } catch (e) {
@@ -76,35 +169,51 @@ export default function LoginScreen({ navigation, route }: any) {
     };
 
     const onLoginSuccess = async (data: any) => {
-        if (data) {
-            await AsyncStorage.setItem('userToken', data.token);
-            await AsyncStorage.setItem('userRole', data.user.role);
-            await AsyncStorage.setItem('user', JSON.stringify(data.user)); 
-            if (data.user.cafeId) {
-                await AsyncStorage.setItem('cafeId', data.user.cafeId);
-            }
+        if (!data) return;
 
-            registerPushToken();
+        const auth = normalizeAuthResponse(data);
+        const role = auth.user?.role;
 
-            if (data.user.role === 'WAITER') {
-                navigation.replace('WaiterDashboard');
-            } else if (data.user.role === 'CHEF') {
-                navigation.replace('ChefDashboard');
-            } else if (data.user.role === 'ADMIN') {
-                navigation.replace('AdminDashboard');
-            } else if (data.user.role === 'SUPER_ADMIN') {
-                navigation.replace('SuperAdminDashboard');
-            } else if (data.user.role === 'CUSTOMER') {
-                navigation.replace('DiscoveryPortal');
-            } else {
-                navigation.replace('ScanTable');
+        if (!auth.token) {
+            console.error('Unexpected login response: missing token', data);
+            Alert.alert('Login Error', 'Login succeeded but the response was incomplete. Please try again.');
+            return;
+        }
+
+        await AsyncStorage.setItem('userToken', auth.token);
+        if (auth.refreshToken) {
+            await AsyncStorage.setItem('refreshToken', auth.refreshToken);
+        }
+        if (role) {
+            await AsyncStorage.setItem('userRole', role);
+        }
+        if (auth.user) {
+            await AsyncStorage.setItem('user', JSON.stringify(auth.user));
+            if (auth.user.cafeId) {
+                await AsyncStorage.setItem('cafeId', auth.user.cafeId);
             }
         }
+
+        if (!role) {
+            console.error('Unexpected login response: missing role', data);
+            Alert.alert('Login Error', 'Signed in, but your account role was missing. Please try again.');
+            return;
+        }
+
+        registerPushToken();
+        toast.showSuccess('Welcome back!');
+
+        if (role === 'WAITER') navigation.replace('WaiterDashboard');
+        else if (role === 'CHEF') navigation.replace('ChefDashboard');
+        else if (role === 'ADMIN') navigation.replace('AdminDashboard');
+        else if (role === 'SUPER_ADMIN') navigation.replace('SuperAdminDashboard');
+        else if (role === 'CUSTOMER') navigation.replace('DiscoveryPortal');
+        else navigation.replace('ScanTable');
     };
 
     const handleLogin = async () => {
-        if (!email.trim() || (!isOtpMode && !password.trim())) {
-            Alert.alert('Missing Fields', 'Please enter email and ' + (isOtpMode ? 'OTP' : 'password'));
+        if (!email.trim() || (!isOtpMode && !password.trim()) || (isOtpMode && !otp.trim())) {
+            Alert.alert('Missing Fields', `Please enter email and ${isOtpMode ? 'OTP' : 'password'}`);
             return;
         }
 
@@ -112,24 +221,14 @@ export default function LoginScreen({ navigation, route }: any) {
         if (isOtpMode) {
             data = await loginOtpAction({ email, otp, purpose: 'LOGIN' });
         } else {
-            try {
-                data = await login({ email, password });
-            } catch (err: any) {
-                if (err.response?.data?.needsVerification) {
-                    setShowingVerification(true);
-                    return;
-                }
-            }
-            // If useApi handled it but we need to check needsVerification manually because useApi might catch it
-            if (!data && error?.response?.data?.needsVerification) {
+            data = await login({ email, password });
+            if (!data && loginError?.response?.data?.needsVerification) {
                 setShowingVerification(true);
                 return;
             }
         }
-        
-        if (data) {
-            await onLoginSuccess(data);
-        }
+
+        if (data) await onLoginSuccess(data);
     };
 
     const handleSendOtp = async () => {
@@ -137,160 +236,264 @@ export default function LoginScreen({ navigation, route }: any) {
             Alert.alert('Email Required', 'Please enter your email to receive an OTP');
             return;
         }
+        if (isOtpCooldownActive) {
+            return;
+        }
         await sendOtpAction({ email, purpose: showingVerification ? 'VERIFY_EMAIL' : 'LOGIN' });
     };
 
     const handleVerifyEmail = async () => {
-        if (!otp.trim()) return;
+        if (!otp.trim()) {
+            Alert.alert('Code Required', 'Please enter the 6-digit verification code');
+            return;
+        }
         const success = await verifyEmailAction({ email, otp });
         if (success) {
             setShowingVerification(false);
             setOtp('');
+            setIsOtpMode(false);
         }
     };
 
-    if (showingVerification) {
-        return (
-            <View style={styles.container}>
-                <ResponsiveContainer maxWidth={500}>
-                    <Text style={styles.title}>Verify Your Email</Text>
-                    <Text style={{ textAlign: 'center', marginBottom: 20, color: '#64748B' }}>
-                        A verification code was sent to {email}. Please enter it below to activate your account.
-                    </Text>
+    const activeError = showingVerification
+        ? verifyError || otpRequestError
+        : isOtpMode
+            ? otpLoginError || otpRequestError
+            : loginError;
 
-                    <TextInput
-                        style={styles.input}
-                        placeholder="6-digit OTP"
-                        value={otp}
-                        onChangeText={setOtp}
-                        keyboardType="number-pad"
-                        maxLength={6}
-                    />
-
-                    <TouchableOpacity
-                        style={[styles.button, verifyLoading && { opacity: 0.7 }]}
-                        onPress={handleVerifyEmail}
-                        disabled={verifyLoading}
-                    >
-                        <Text style={styles.buttonText}>{verifyLoading ? 'Verifying...' : 'Verify Email'}</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity onPress={handleSendOtp} style={{ marginTop: 20 }}>
-                        <Text style={{ color: '#3B82F6', textAlign: 'center', fontWeight: '600' }}>Resend Code</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity onPress={() => setShowingVerification(false)} style={{ marginTop: 15 }}>
-                        <Text style={{ color: '#64748B', textAlign: 'center' }}>Back to Login</Text>
-                    </TouchableOpacity>
-                </ResponsiveContainer>
-            </View>
-        );
-    }
+    const errorMessage = activeError
+        ? activeError.response?.data?.error ||
+          (!activeError.response ? 'Unable to reach the server. Please make sure the backend is running and try again.' : activeError.message) ||
+          'Login failed'
+        : null;
+    const otpTimingNote = isOtpCooldownActive
+        ? `You can request another code in ${otpCooldownSeconds}s.`
+        : 'You can request a new code every 60 seconds.';
+    const otpEligibilityNote = isCustomerMode
+        ? 'OTP login is only for existing client accounts. If you are new, create the account first.'
+        : 'OTP login is only for staff accounts already created by the admin.';
 
     return (
-        <View style={styles.container}>
-            <ResponsiveContainer maxWidth={500}>
-                <Text style={styles.title} accessibilityRole="header">{loginTitle}</Text>
-                <Text style={styles.subtitle}>{loginSubtitle}</Text>
+        <View style={styles.screen}>
+            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+                <ResponsiveContainer maxWidth={1120}>
+                    <View style={styles.page}>
+                        <View style={styles.header}>
+                            <Text style={styles.badge}>{badge}</Text>
+                            <Text style={styles.title}>{title}</Text>
+                            <Text style={styles.subtitle}>{subtitle}</Text>
+                        </View>
 
-                {error && !error.response?.data?.needsVerification ? (
-                    <Text style={styles.errorText} accessibilityLiveRegion="assertive">
-                        {error.response?.data?.error || error.message || 'Login failed'}
-                    </Text>
-                ) : null}
+                        <View style={[styles.grid, isWide && styles.gridWide]}>
+                            <View style={[styles.side, isWide && styles.sideWide]}>
+                                <View style={styles.panel}>
+                                    <Text style={styles.panelLabel}>{showingVerification ? 'NEXT STEPS' : 'ACCESS NOTES'}</Text>
+                                    {accessNotes.map((note, index) => (
+                                        <View key={note} style={[styles.listRow, index < accessNotes.length - 1 && styles.rowBorder]}>
+                                            <Text style={styles.listIndex}>{String(index + 1).padStart(2, '0')}</Text>
+                                            <Text style={styles.listText}>{note}</Text>
+                                        </View>
+                                    ))}
+                                </View>
 
-                <TextInput
-                    style={[styles.input, error && !email ? styles.inputError : null]}
-                    placeholder="Email"
-                    value={email}
-                    onChangeText={(v) => { setEmail(v); }}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                />
+                                {!showingVerification && (
+                                    <View style={styles.panel}>
+                                        <Text style={styles.panelLabel}>{isCustomerMode ? 'CLIENT FLOW' : 'STAFF FLOW'}</Text>
+                                        {featureNotes.map((note) => (
+                                            <View key={note} style={styles.featureBlock}>
+                                                <Text style={styles.featureText}>{note}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
 
-                {!isOtpMode ? (
-                    <TextInput
-                        style={[styles.input, error && !password ? styles.inputError : null]}
-                        placeholder="Password"
-                        value={password}
-                        onChangeText={(v) => { setPassword(v); }}
-                        secureTextEntry
-                    />
-                ) : (
-                    <View>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="6-digit OTP"
-                            value={otp}
-                            onChangeText={setOtp}
-                            keyboardType="number-pad"
-                            maxLength={6}
-                        />
-                        <TouchableOpacity 
-                            onPress={handleSendOtp} 
-                            style={{ alignSelf: 'flex-end', marginTop: -10, marginBottom: 15 }}
-                            disabled={otpLoading}
-                        >
-                            <Text style={{ color: '#3B82F6', fontWeight: '600', fontSize: 13 }}>
-                                {otpLoading ? 'Sending...' : 'Send OTP'}
-                            </Text>
-                        </TouchableOpacity>
+                            <View style={styles.main}>
+                                <View style={styles.formPanel}>
+                                    {!showingVerification ? (
+                                        <>
+                                            <View style={styles.switcher}>
+                                                <TouchableOpacity style={[styles.switchTab, !isOtpMode && styles.switchTabActive]} onPress={() => setIsOtpMode(false)}>
+                                                    <Text style={[styles.switchTabText, !isOtpMode && styles.switchTabTextActive]}>Password</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity style={[styles.switchTab, isOtpMode && styles.switchTabActive]} onPress={() => setIsOtpMode(true)}>
+                                                    <Text style={[styles.switchTabText, isOtpMode && styles.switchTabTextActive]}>OTP</Text>
+                                                </TouchableOpacity>
+                                            </View>
+
+                                            {errorMessage && !activeError?.response?.data?.needsVerification ? (
+                                                <View style={styles.errorBox}>
+                                                    <Text style={styles.errorText}>{errorMessage}</Text>
+                                                </View>
+                                            ) : null}
+
+                                            <Text style={styles.fieldLabel}>Email address</Text>
+                                            <TextInput
+                                                style={[styles.input, activeError && !email ? styles.inputError : null]}
+                                                placeholder="name@example.com"
+                                                placeholderTextColor="#94A3B8"
+                                                value={email}
+                                                onChangeText={setEmail}
+                                                autoCapitalize="none"
+                                                keyboardType="email-address"
+                                            />
+
+                                            {!isOtpMode ? (
+                                                <>
+                                                    <Text style={styles.fieldLabel}>Password</Text>
+                                                    <View style={[styles.passwordField, activeError && !password ? styles.inputError : null]}>
+                                                        <TextInput
+                                                            style={styles.passwordInput}
+                                                            placeholder="Enter your password"
+                                                            placeholderTextColor="#94A3B8"
+                                                            value={password}
+                                                            onChangeText={setPassword}
+                                                            secureTextEntry={showCustomPasswordToggle ? !isPasswordVisible : true}
+                                                        />
+                                                        {showCustomPasswordToggle ? (
+                                                            <TouchableOpacity
+                                                                style={styles.passwordToggle}
+                                                                onPress={() => setIsPasswordVisible((current) => !current)}
+                                                                accessibilityRole="button"
+                                                                accessibilityLabel={isPasswordVisible ? 'Hide password' : 'Show password'}
+                                                            >
+                                                                <Ionicons
+                                                                    name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
+                                                                    size={20}
+                                                                    color="#475569"
+                                                                />
+                                                            </TouchableOpacity>
+                                                        ) : null}
+                                                    </View>
+
+                                                    <TouchableOpacity style={styles.linkBlock} onPress={() => navigation.navigate('ForgotPassword')}>
+                                                        <Text style={styles.linkBlockText}>Forgot password</Text>
+                                                    </TouchableOpacity>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Text style={styles.fieldLabel}>6-digit OTP</Text>
+                                                    <TextInput
+                                                        style={styles.input}
+                                                        placeholder="123456"
+                                                        placeholderTextColor="#94A3B8"
+                                                        value={otp}
+                                                        onChangeText={setOtp}
+                                                        keyboardType="number-pad"
+                                                        maxLength={6}
+                                                    />
+
+                                                    <TouchableOpacity style={[styles.secondaryButton, (otpLoading || isOtpCooldownActive) && styles.disabled]} onPress={handleSendOtp} disabled={otpLoading || isOtpCooldownActive}>
+                                                        <Text style={styles.secondaryButtonText}>
+                                                            {otpLoading ? 'Sending...' : isOtpCooldownActive ? `Resend in ${otpCooldownSeconds}s` : 'Send OTP to email'}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                    <Text style={styles.helperText}>{otpEligibilityNote} {otpTimingNote}</Text>
+                                                </>
+                                            )}
+
+                                            <TouchableOpacity style={[styles.primaryButton, (loading || otpLoginLoading) && styles.disabled]} onPress={handleLogin} disabled={loading || otpLoginLoading}>
+                                                <Text style={styles.primaryButtonText}>{loading || otpLoginLoading ? 'Processing...' : isOtpMode ? 'Login with OTP' : 'Login'}</Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity style={styles.linkBlock} onPress={() => navigation.navigate('ScanTable')}>
+                                                <Text style={styles.linkBlockText}>{isCustomerMode ? 'Joining from a table QR? Go to Scan Table' : 'Need the QR or customer flow? Go to Scan Table'}</Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity style={styles.linkBlock} onPress={() => navigation.navigate('Register')}>
+                                                <Text style={styles.linkBlockText}>{isCustomerMode ? 'New here? Create your account first' : 'Need a client account? Create one'}</Text>
+                                            </TouchableOpacity>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {errorMessage ? (
+                                                <View style={styles.errorBox}>
+                                                    <Text style={styles.errorText}>{errorMessage}</Text>
+                                                </View>
+                                            ) : null}
+
+                                            <Text style={styles.fieldLabel}>Email address</Text>
+                                            <TextInput style={[styles.input, styles.inputDisabled]} value={email} editable={false} />
+
+                                            <Text style={styles.fieldLabel}>6-digit verification code</Text>
+                                            <TextInput
+                                                style={styles.input}
+                                                placeholder="123456"
+                                                placeholderTextColor="#94A3B8"
+                                                value={otp}
+                                                onChangeText={setOtp}
+                                                keyboardType="number-pad"
+                                                maxLength={6}
+                                            />
+
+                                            <TouchableOpacity style={[styles.primaryButton, verifyLoading && styles.disabled]} onPress={handleVerifyEmail} disabled={verifyLoading}>
+                                                <Text style={styles.primaryButtonText}>{verifyLoading ? 'Verifying...' : 'Verify email'}</Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity style={[styles.secondaryButton, (otpLoading || isOtpCooldownActive) && styles.disabled]} onPress={handleSendOtp} disabled={otpLoading || isOtpCooldownActive}>
+                                                <Text style={styles.secondaryButtonText}>
+                                                    {otpLoading ? 'Sending...' : isOtpCooldownActive ? `Resend in ${otpCooldownSeconds}s` : 'Resend code'}
+                                                </Text>
+                                            </TouchableOpacity>
+                                            <Text style={styles.helperText}>Check your inbox and spam folder. {otpTimingNote}</Text>
+
+                                            <TouchableOpacity style={styles.linkBlock} onPress={() => setShowingVerification(false)}>
+                                                <Text style={styles.linkBlockText}>Back to login</Text>
+                                            </TouchableOpacity>
+                                        </>
+                                    )}
+                                </View>
+                            </View>
+                        </View>
                     </View>
-                )}
-
-                <TouchableOpacity 
-                    style={{ alignSelf: 'flex-end', marginBottom: 15 }}
-                    onPress={() => navigation.navigate('ForgotPassword')}
-                >
-                    <Text style={{ color: '#3B82F6', fontWeight: '600', fontSize: 13 }}>Forgot Password?</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={[styles.button, (loading || otpLoginLoading) && { opacity: 0.7 }]}
-                    onPress={handleLogin}
-                    disabled={loading || otpLoginLoading}
-                >
-                    <Text style={styles.buttonText}>
-                        {loading || otpLoginLoading ? 'Processing...' : (isOtpMode ? 'Login with OTP' : 'Login')}
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                    onPress={() => setIsOtpMode(!isOtpMode)} 
-                    style={{ marginTop: 20 }}
-                >
-                    <Text style={{ color: '#64748B', textAlign: 'center', fontWeight: '600' }}>
-                        {isOtpMode ? 'Use Password instead' : 'Login with OTP'}
-                    </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                    onPress={() => navigation.navigate('ScanTable')} 
-                    style={{ marginTop: 25 }}
-                >
-                    <Text style={{ color: '#007AFF', textAlign: 'center', fontWeight: '500' }}>
-                        {isCustomerMode ? 'Joining through a table QR? Go to Scan Table' : 'Customer? Go to Scan Table'}
-                    </Text>
-                </TouchableOpacity>
-
-                <View style={{ flexDirection: 'row', justifyContent: 'center', marginTop: 20, borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 20 }}>
-                    <Text style={{ color: '#64748B' }}>{isCustomerMode ? "Don't have an account? " : 'Need a client account? '}</Text>
-                    <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-                        <Text style={{ color: '#0EA5E9', fontWeight: '800' }}>Sign Up</Text>
-                    </TouchableOpacity>
-                </View>
-            </ResponsiveContainer>
+                </ResponsiveContainer>
+            </ScrollView>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 20, justifyContent: 'center', backgroundColor: '#F8FAFC' },
-    title: { fontSize: 26, fontWeight: '800', marginBottom: 10, textAlign: 'center', color: '#0F172A' },
-    subtitle: { color: '#64748B', textAlign: 'center', fontSize: 14, lineHeight: 21, marginBottom: 20 },
-    input: { borderWidth: 1, borderColor: '#CBD5E1', padding: 14, marginBottom: 15, borderRadius: 10, backgroundColor: 'white', color: '#0F172A' },
-    inputError: { borderColor: '#EF4444' },
-    errorText: { color: '#EF4444', marginBottom: 12, textAlign: 'center', fontWeight: '500', fontSize: 14 },
-    button: { backgroundColor: '#0EA5E9', padding: 16, borderRadius: 12, alignItems: 'center' },
-    buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 }
+    screen: { flex: 1, backgroundColor: '#FFFFFF' },
+    scroll: { paddingVertical: 28, backgroundColor: '#FFFFFF' },
+    page: { paddingHorizontal: 20 },
+    header: { paddingTop: 12, paddingBottom: 28, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', marginBottom: 24 },
+    badge: { alignSelf: 'flex-start', backgroundColor: '#FFF1EB', borderWidth: 1, borderColor: '#FFD7C8', color: '#C2410C', fontSize: 12, fontWeight: '800', letterSpacing: 1, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 16 },
+    title: { color: '#0F172A', fontSize: 40, fontWeight: '900', lineHeight: 46, marginBottom: 10, maxWidth: 760 },
+    subtitle: { color: '#475569', fontSize: 16, lineHeight: 26, maxWidth: 820, fontWeight: '500' },
+    grid: { flexDirection: 'column' },
+    gridWide: { flexDirection: 'row', alignItems: 'flex-start' },
+    side: { width: '100%', marginBottom: 20 },
+    sideWide: { width: 360, marginBottom: 0, marginRight: 28 },
+    main: { flex: 1, minWidth: 0 },
+    panel: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D7DEE7', borderTopWidth: 4, borderTopColor: '#FF6B35', padding: 22, marginBottom: 20, width: '100%', maxWidth: '100%' },
+    formPanel: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D7DEE7', borderTopWidth: 4, borderTopColor: '#0F172A', padding: 24, width: '100%', maxWidth: '100%' },
+    panelLabel: { color: '#94A3B8', fontSize: 12, fontWeight: '800', letterSpacing: 1.1, marginBottom: 10 },
+    listRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 14 },
+    rowBorder: { borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
+    listIndex: { width: 42, borderWidth: 1, borderColor: '#0F172A', paddingVertical: 8, textAlign: 'center', color: '#0F172A', fontSize: 12, fontWeight: '900', marginRight: 14 },
+    listText: { flex: 1, color: '#334155', fontSize: 14, lineHeight: 22, fontWeight: '500' },
+    featureBlock: { backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', padding: 16, marginBottom: 12 },
+    featureText: { color: '#0F172A', fontSize: 14, lineHeight: 22, fontWeight: '700' },
+    switcher: { flexDirection: 'row', marginBottom: 22 },
+    switchTab: { flex: 1, borderWidth: 1, borderColor: '#D7DEE7', paddingVertical: 14, alignItems: 'center', marginRight: 12, backgroundColor: '#FFFFFF' },
+    switchTabActive: { borderColor: '#0F172A', backgroundColor: '#FFF7F3' },
+    switchTabText: { color: '#64748B', fontSize: 15, fontWeight: '700' },
+    switchTabTextActive: { color: '#0F172A' },
+    fieldLabel: { color: '#475569', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.9, marginBottom: 8, marginTop: 4 },
+    input: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1', color: '#0F172A', fontSize: 16, fontWeight: '500', paddingHorizontal: 16, paddingVertical: 16, marginBottom: 16 },
+    passwordField: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1', marginBottom: 16 },
+    passwordInput: { flex: 1, color: '#0F172A', fontSize: 16, fontWeight: '500', paddingLeft: 16, paddingVertical: 16 },
+    passwordToggle: { width: 54, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: '#E2E8F0' },
+    inputDisabled: { backgroundColor: '#F8FAFC', color: '#64748B' },
+    inputError: { borderColor: '#DC2626' },
+    primaryButton: { marginTop: 4, backgroundColor: '#0F172A', borderWidth: 1, borderColor: '#0F172A', paddingVertical: 18, alignItems: 'center' },
+    primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+    secondaryButton: { marginTop: 2, marginBottom: 10, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#0F172A', paddingVertical: 16, alignItems: 'center' },
+    secondaryButtonText: { color: '#0F172A', fontSize: 15, fontWeight: '800' },
+    helperText: { color: '#64748B', fontSize: 13, lineHeight: 20, fontWeight: '500', marginBottom: 10, width: '100%', flexShrink: 1 },
+    linkBlock: { borderWidth: 1, borderColor: '#CBD5E1', paddingVertical: 16, paddingHorizontal: 16, backgroundColor: '#FFFFFF', marginTop: 12 },
+    linkBlockText: { color: '#0F172A', fontSize: 14, fontWeight: '700', textAlign: 'center', lineHeight: 20 },
+    errorBox: { borderWidth: 1, borderColor: '#FECACA', backgroundColor: '#FFF1F2', padding: 16, marginBottom: 18, width: '100%', maxWidth: '100%', alignSelf: 'stretch' },
+    errorText: { color: '#B91C1C', fontSize: 14, fontWeight: '700', lineHeight: 20, width: '100%', flexShrink: 1 },
+    disabled: { opacity: 0.7 },
 });

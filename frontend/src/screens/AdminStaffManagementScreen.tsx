@@ -127,22 +127,22 @@ export default function AdminStaffManagementScreen({ navigation }: any) {
                             .map(member => (
                             <View key={member.id} style={[styles.staffCard, member.isActive === false && { opacity: 0.5, borderStyle: 'dashed', borderColor: '#334155' }, !isDesktop && { flexDirection: 'column', alignItems: 'flex-start' }]}>
                                 <View style={[styles.cardInfo, !isDesktop && { marginBottom: 15 }]}>
-                                    <Text style={styles.memberName}>{member.name} {member.isActive === false ? '(Archived)' : ''}</Text>
+                                    <Text style={styles.memberName}>{member.name} {member.isActive === false ? '(Locked)' : ''}</Text>
                                     <Text style={styles.memberEmail}>{member.email}</Text>
                                     <View style={{ flexDirection: 'row', marginTop: 8, gap: 10 }}>
                                         <View style={[styles.roleBadge, member.role === 'CHEF' ? styles.chefBg : styles.waiterBg]}>
                                             <Text style={styles.roleText}>{member.role}</Text>
                                         </View>
-                                        {member.isActive === false && (
+                                    {member.isActive === false && (
                                             <View style={[styles.roleBadge, { backgroundColor: '#334155' }]}>
-                                                <Text style={styles.roleText}>INACTIVE</Text>
+                                                <Text style={styles.roleText}>LOCKED</Text>
                                             </View>
                                         )}
                                     </View>
                                 </View>
                                 <View style={[styles.actionBlock, !isDesktop && { width: '100%', justifyContent: 'flex-start' }]}>
                                     <TouchableOpacity style={[styles.editBtn, !isDesktop && { flex: 1, alignItems: 'center' }]} onPress={() => openEditModal(member)}>
-                                        <Text style={styles.editBtnText}>{member.isActive === false ? 'Reactivate' : 'Edit'}</Text>
+                                        <Text style={styles.editBtnText}>{member.isActive === false ? 'Unlock' : 'Edit'}</Text>
                                     </TouchableOpacity>
                                     {member.isActive !== false && (
                                         <TouchableOpacity style={[styles.delBtn, !isDesktop && { flex: 1, alignItems: 'center' }]} onPress={() => handleDelete(member.id)}>
@@ -179,7 +179,7 @@ export default function AdminStaffManagementScreen({ navigation }: any) {
 
                         {editingId && (
                             <View style={[styles.roleTabs, { marginTop: -10 }]}>
-                                {[{ label: 'Active', val: true }, { label: 'Deactivated', val: false }].map(opt => (
+                                {[{ label: 'Active', val: true }, { label: 'Locked', val: false }].map(opt => (
                                     <TouchableOpacity
                                         key={opt.label}
                                         style={[styles.roleTab, form.isActive === opt.val && styles.roleTabActive]}
@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
     modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
     modalContent: { backgroundColor: '#0F172A', padding: 25, borderRadius: 24, width: '90%', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
     modalTitle: { color: 'white', fontSize: 22, fontWeight: '800', marginBottom: 20 },
-    errorText: { color: '#EF4444', marginBottom: 12, textAlign: 'center', fontWeight: '500', fontSize: 14 },
+    errorText: { color: '#EF4444', marginBottom: 12, textAlign: 'center', fontWeight: '500', fontSize: 14, width: '100%', flexShrink: 1 },
     input: { backgroundColor: '#1E293B', color: 'white', padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: '#1E293B' },
     inputError: { borderColor: '#EF4444' },
     roleTabs: { flexDirection: 'row', gap: 10, marginBottom: 20 },

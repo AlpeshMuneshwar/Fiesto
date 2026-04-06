@@ -121,6 +121,34 @@ const testimonialData = [
     },
 ];
 
+const pricingHighlights = [
+    {
+        icon: 'calendar-check-outline',
+        title: '1-month free trial',
+        desc: 'Every new cafe gets full access free for the first month.',
+    },
+    {
+        icon: 'email-fast-outline',
+        title: 'Reminder before your trial ends',
+        desc: 'We email or call you 5 days before the free month ends to ask if you want to continue.',
+    },
+    {
+        icon: 'ticket-confirmation-outline',
+        title: 'Simple base pricing',
+        desc: 'After the trial, the plan is Rs. 159 per month and includes 100 order sessions.',
+    },
+    {
+        icon: 'cash-plus',
+        title: 'Transparent extra usage',
+        desc: 'Above 100 order sessions, each extra order session is charged at Rs. 1.',
+    },
+    {
+        icon: 'headset',
+        title: 'Daytime support included',
+        desc: 'You get working-hours support for day-to-day operational help.',
+    },
+];
+
 export default function LandingScreen({ navigation }: any) {
     const { width: windowWidth } = useWindowDimensions();
     const isWide = windowWidth > 900;
@@ -304,7 +332,7 @@ export default function LandingScreen({ navigation }: any) {
                             </Text>
 
                             <Text style={styles.subheading}>
-                                Increase performance, productivity and profitability by implementing the latest technology in the Restaurant Industry.
+                                Launch QR ordering, kitchen flow, and live cafe operations with a 1-month free trial built for growing cafes.
                             </Text>
 
                             <View style={styles.ctaRow}>
@@ -318,11 +346,8 @@ export default function LandingScreen({ navigation }: any) {
                                         end={{ x: 1, y: 0 }}
                                         style={styles.ctaGradient}
                                     >
-                                        <Text style={styles.ctaButtonText}>Start Free Trial →</Text>
+                                        <Text style={styles.ctaButtonText}>Start 1-Month Free Trial →</Text>
                                     </LinearGradient>
-                                </TouchableOpacity>
-                                <TouchableOpacity style={styles.ctaButtonSecondary} onPress={navigateToClientLogin}>
-                                    <Text style={styles.ctaButtonSecondaryText}>Client Login</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -520,6 +545,57 @@ export default function LandingScreen({ navigation }: any) {
                 </ResponsiveContainer>
             </View>
 
+            {/* ===================== PRICING SECTION ===================== */}
+            <View style={styles.pricingSection}>
+                <ResponsiveContainer maxWidth={1200}>
+                    <View style={styles.pricingHeader}>
+                        <View style={styles.sectionLabelPill}>
+                            <Text style={styles.sectionLabelText}>PRICING</Text>
+                        </View>
+                        <Text style={styles.pricingTitle}>Simple pricing with a real free trial</Text>
+                        <Text style={styles.pricingSubtitle}>
+                            Start with 1 month free. Five days before the trial ends, we send an email or make a call to confirm whether you want to continue.
+                        </Text>
+                    </View>
+
+                    <View style={[styles.pricingLayout, isWide && styles.pricingLayoutWide]}>
+                        <LinearGradient
+                            colors={['#0F172A', '#1E293B']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.pricingCard}
+                        >
+                            <Text style={styles.pricingTrialBadge}>1 month free</Text>
+                            <Text style={styles.pricingCardLabel}>Continue after trial</Text>
+                            <Text style={styles.pricingCardPrice}>Rs. 159</Text>
+                            <Text style={styles.pricingCardPeriod}>per month</Text>
+                            <Text style={styles.pricingCardDescription}>
+                                Includes the first 100 order sessions every month.
+                            </Text>
+
+                            <View style={styles.pricingCardDivider} />
+
+                            <Text style={styles.pricingCardSupport}>Extra order sessions above 100: Rs. 1 each</Text>
+                            <Text style={styles.pricingCardSupport}>Daytime support during working hours included</Text>
+                        </LinearGradient>
+
+                        <View style={[styles.pricingDetailsColumn, isWide && styles.pricingDetailsColumnWide]}>
+                            {pricingHighlights.map((item) => (
+                                <View key={item.title} style={styles.pricingDetailCard}>
+                                    <View style={styles.pricingDetailIcon}>
+                                        <MaterialCommunityIcons name={item.icon} size={22} color="#FF6B35" />
+                                    </View>
+                                    <View style={styles.pricingDetailContent}>
+                                        <Text style={styles.pricingDetailTitle}>{item.title}</Text>
+                                        <Text style={styles.pricingDetailDesc}>{item.desc}</Text>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    </View>
+                </ResponsiveContainer>
+            </View>
+
             {/* ===================== TESTIMONIALS ===================== */}
             <View style={[styles.testimonialsSection, { display: 'none' }]}>
                 <ResponsiveContainer maxWidth={1000}>
@@ -557,9 +633,9 @@ export default function LandingScreen({ navigation }: any) {
                 <Animated.View style={[styles.ctaGlowOrb, { transform: [{ translateY: float1 }] }]} />
                 <ResponsiveContainer maxWidth={800}>
                     <View style={styles.ctaContent}>
-                        <Text style={styles.ctaTitle}>Ready to Transform{'\n'}Your Cafe?</Text>
+                        <Text style={styles.ctaTitle}>Ready to Start{'\n'}Your Free Month?</Text>
                         <Text style={styles.ctaSubtitle}>
-                            Join 500+ successful cafe owners who've increased their revenue with Fiesto.
+                            Go live with Fiesto for 1 month free. We will remind you 5 days before the trial ends, and you can continue on a simple monthly plan if it is the right fit.
                         </Text>
 
                         <TouchableOpacity
@@ -572,12 +648,12 @@ export default function LandingScreen({ navigation }: any) {
                                 end={{ x: 1, y: 0 }}
                                 style={styles.finalCTAGradient}
                             >
-                                <Text style={styles.finalCTAText}>Get Started Today</Text>
+                                <Text style={styles.finalCTAText}>Start My 1-Month Free Trial</Text>
                             </LinearGradient>
                         </TouchableOpacity>
 
                         <Text style={styles.ctaFinePrint}>
-                            No setup fees • 24/7 support included
+                            Rs. 159/month after trial, including 100 order sessions. Extra sessions are Rs. 1 each. Daytime support included.
                         </Text>
                     </View>
                 </ResponsiveContainer>
@@ -865,10 +941,31 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#475569',
         lineHeight: 26,
-        marginBottom: 24,
+        marginBottom: 18,
         maxWidth: 520,
         fontWeight: '500',
         letterSpacing: 0.2,
+    },
+    heroOfferCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 14,
+        padding: 16,
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+        maxWidth: 520,
+    },
+    heroOfferTitle: {
+        color: '#0F172A',
+        fontSize: 14,
+        fontWeight: '800',
+        marginBottom: 6,
+    },
+    heroOfferText: {
+        color: '#64748B',
+        fontSize: 13,
+        lineHeight: 21,
+        fontWeight: '500',
     },
 
     ctaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 },
@@ -1234,6 +1331,126 @@ const styles = StyleSheet.create({
         width: 120,
         height: 120,
         borderRadius: 60,
+    },
+
+    // ===========================
+    // PRICING
+    // ===========================
+    pricingSection: { backgroundColor: '#FAFBFF', paddingVertical: 64 },
+    pricingHeader: { alignItems: 'center', marginBottom: 40 },
+    pricingTitle: {
+        fontSize: 38,
+        color: '#0F172A',
+        fontWeight: '900',
+        textAlign: 'center',
+        marginBottom: 12,
+        letterSpacing: -0.5,
+    },
+    pricingSubtitle: {
+        fontSize: 15,
+        color: '#64748B',
+        textAlign: 'center',
+        maxWidth: 760,
+        fontWeight: '500',
+        lineHeight: 24,
+    },
+    pricingLayout: { flexDirection: 'column' },
+    pricingLayoutWide: { flexDirection: 'row', alignItems: 'stretch' },
+    pricingCard: {
+        flex: 1,
+        borderRadius: 24,
+        padding: 32,
+        marginBottom: 20,
+        minWidth: 300,
+    },
+    pricingTrialBadge: {
+        alignSelf: 'flex-start',
+        backgroundColor: 'rgba(255,255,255,0.14)',
+        color: '#FFFFFF',
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: '800',
+        letterSpacing: 0.8,
+        textTransform: 'uppercase',
+        marginBottom: 20,
+    },
+    pricingCardLabel: {
+        color: '#CBD5E1',
+        fontSize: 14,
+        fontWeight: '700',
+        marginBottom: 10,
+    },
+    pricingCardPrice: {
+        color: '#FFFFFF',
+        fontSize: 52,
+        fontWeight: '900',
+        letterSpacing: -1,
+        marginBottom: 4,
+    },
+    pricingCardPeriod: {
+        color: '#E2E8F0',
+        fontSize: 16,
+        fontWeight: '700',
+        marginBottom: 18,
+    },
+    pricingCardDescription: {
+        color: '#CBD5E1',
+        fontSize: 15,
+        lineHeight: 24,
+        fontWeight: '500',
+    },
+    pricingCardDivider: {
+        height: 1,
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        marginVertical: 20,
+    },
+    pricingCardSupport: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        lineHeight: 22,
+        fontWeight: '600',
+        marginBottom: 8,
+    },
+    pricingDetailsColumn: {
+        flex: 1.15,
+        marginLeft: 0,
+    },
+    pricingDetailsColumnWide: {
+        marginLeft: 24,
+    },
+    pricingDetailCard: {
+        backgroundColor: '#FFFFFF',
+        borderRadius: 18,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginBottom: 16,
+    },
+    pricingDetailIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        backgroundColor: '#FFF1EB',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 14,
+    },
+    pricingDetailContent: { flex: 1 },
+    pricingDetailTitle: {
+        color: '#0F172A',
+        fontSize: 16,
+        fontWeight: '800',
+        marginBottom: 6,
+    },
+    pricingDetailDesc: {
+        color: '#64748B',
+        fontSize: 14,
+        lineHeight: 22,
+        fontWeight: '500',
     },
 
     // ===========================

@@ -4,56 +4,52 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { prisma } from '../prisma';
 import { authenticate, requireRole, AuthRequest, JWT_SECRET } from '../middleware/auth';
-import { validate, loginSchema, registerSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, otpRequestSchema, otpVerifySchema, emailVerifySchema } from '../validators';
+import { validate, loginSchema, registerSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, otpRequestSchema, otpVerifySchema, emailVerifySchema, customerRegisterSchema } from '../validators';
 import { asyncHandler } from '../middleware/error-handler';
 import { sendOTPEmail } from '../utils/email';
 
 const router = Router();
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
+const OTP_RESEND_COOLDOWN_MS = OTP_RESEND_COOLDOWN_SECONDS * 1000;
 
-// ==========================================
-// Brute-force protection (in-memory tracker)
-// ==========================================
-
-interface LoginAttempt {
-    count: number;
-    lockUntil: number | null;
-}
-const loginAttempts = new Map<string, LoginAttempt>();
-
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
-
-function checkBruteForce(email: string): { locked: boolean; remainingMs?: number } {
-    const attempt = loginAttempts.get(email);
-    if (!attempt) return { locked: false };
-
-    if (attempt.lockUntil && Date.now() < attempt.lockUntil) {
-        return { locked: true, remainingMs: attempt.lockUntil - Date.now() };
-    }
-
-    // Lock expired, reset
-    if (attempt.lockUntil && Date.now() >= attempt.lockUntil) {
-        loginAttempts.delete(email);
-        return { locked: false };
-    }
-
-    return { locked: false };
+function respondAccountLocked(res: Response) {
+    res.status(423).json({
+        error: 'This account has been locked by the admin. Please contact the cafe administrator to continue.',
+        accountLocked: true,
+    });
 }
 
-function recordFailedAttempt(email: string): void {
-    const attempt = loginAttempts.get(email) || { count: 0, lockUntil: null };
-    attempt.count += 1;
+const otpCooldowns = new Map<string, number>();
 
-    if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
-        attempt.lockUntil = Date.now() + LOCK_DURATION_MS;
-        console.warn(`[SECURITY] Account locked: ${email} after ${attempt.count} failed attempts`);
-    }
-
-    loginAttempts.set(email, attempt);
+function getOtpCooldownKey(email: string, purpose: string) {
+    return `${purpose}:${email.toLowerCase().trim()}`;
 }
 
-function clearAttempts(email: string): void {
-    loginAttempts.delete(email);
+function getRetryAfterSeconds(key: string) {
+    const retryAt = otpCooldowns.get(key);
+    if (!retryAt) {
+        return 0;
+    }
+
+    return Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
+}
+
+function respondOtpCooldown(res: Response, key: string) {
+    const retryAfterSeconds = getRetryAfterSeconds(key);
+    if (retryAfterSeconds <= 0) {
+        return false;
+    }
+
+    res.status(429).json({
+        error: `Please wait ${retryAfterSeconds} seconds before requesting another code.`,
+        retryAfterSeconds,
+        otpCooldown: true,
+    });
+    return true;
+}
+
+function recordOtpCooldown(key: string) {
+    otpCooldowns.set(key, Date.now() + OTP_RESEND_COOLDOWN_MS);
 }
 
 // ==========================================
@@ -72,6 +68,9 @@ setInterval(() => {
     for (const [token, data] of resetTokens) {
         if (data.expiresAt < now) resetTokens.delete(token);
     }
+    for (const [key, retryAt] of otpCooldowns) {
+        if (retryAt < now) otpCooldowns.delete(key);
+    }
 }, 60 * 60 * 1000); // Every hour
 
 // ==========================================
@@ -81,26 +80,20 @@ setInterval(() => {
 router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
-    // Check brute-force lockout
-    const bruteCheck = checkBruteForce(email);
-    if (bruteCheck.locked) {
-        const minutes = Math.ceil((bruteCheck.remainingMs || 0) / 60000);
-        res.status(429).json({
-            error: `Account temporarily locked due to too many failed attempts. Try again in ${minutes} minutes.`,
-        });
-        return;
-    }
-
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-        recordFailedAttempt(email);
         res.status(401).json({ error: 'Invalid credentials' });
         return;
     }
 
-    // Only strict email verification for Admins/Super Admins who have access to sensitive data. 
-    // Staff (Waiters/Chefs) are assumed verified since the Admin manually created their accounts.
-    if (!user.isEmailVerified && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN')) {
+    if (!user.isActive) {
+        respondAccountLocked(res);
+        return;
+    }
+
+    // Staff accounts can be created and managed directly by admins.
+    // Self-service roles should verify email before using password login.
+    if (!user.isEmailVerified && user.role !== 'WAITER' && user.role !== 'CHEF') {
         res.status(403).json({ 
             error: 'Email not verified. Please verify your email to login.',
             needsVerification: true,
@@ -111,13 +104,9 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
 
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
-        recordFailedAttempt(email);
         res.status(401).json({ error: 'Invalid credentials' });
         return;
     }
-
-    // Successful login — clear failed attempts
-    clearAttempts(email);
 
     // Generate short-lived access token
     const accessToken = jwt.sign(
@@ -170,6 +159,12 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
         return;
     }
 
+    if (!user.isActive) {
+        refreshTokens.delete(refreshToken);
+        respondAccountLocked(res);
+        return;
+    }
+
     // Rotate: delete old refresh token, issue new pair
     refreshTokens.delete(refreshToken);
 
@@ -203,6 +198,58 @@ router.post('/logout', asyncHandler(async (req: Request, res: Response) => {
         refreshTokens.delete(refreshToken);
     }
     res.json({ message: 'Logged out successfully' });
+}));
+
+// ==========================================
+// POST /register-customer — Public customer account registration with email verification
+// ==========================================
+
+router.post('/register-customer', validate(customerRegisterSchema), asyncHandler(async (req: Request, res: Response) => {
+    const { name, email, password } = req.body;
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+        res.status(400).json({ error: 'Account with this email already exists. Please login.' });
+        return;
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 15 * 60 * 1000);
+
+    const user = await prisma.user.create({
+        data: {
+            name,
+            email,
+            password: hashedPassword,
+            role: 'CUSTOMER',
+            isEmailVerified: false,
+            otp,
+            otpExpires,
+            createdBy: 'SELF_SERVICE',
+            updatedBy: 'SELF_SERVICE',
+        },
+    });
+
+    try {
+        await sendOTPEmail(email, otp, 'VERIFY_EMAIL');
+        recordOtpCooldown(getOtpCooldownKey(email, 'VERIFY_EMAIL'));
+    } catch (error) {
+        await prisma.user.delete({ where: { id: user.id } }).catch((cleanupError) => {
+            console.error('[AUTH] Failed to rollback customer registration after email failure:', cleanupError);
+        });
+        throw error;
+    }
+
+    res.status(201).json({
+        message: 'Account created. We sent a verification code to your email.',
+        user: {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            isEmailVerified: false,
+        },
+    });
 }));
 
 // ==========================================
@@ -260,11 +307,31 @@ router.post(
 
 router.post('/request-otp', validate(otpRequestSchema), asyncHandler(async (req: Request, res: Response) => {
     const { email, purpose } = req.body;
+    const cooldownKey = getOtpCooldownKey(email, purpose);
+
+    if (respondOtpCooldown(res, cooldownKey)) {
+        return;
+    }
+
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-        // For security, don't confirm if user exists, but for verification purposes it's fine
-        res.json({ message: 'If an account exists, an OTP has been sent to your email.' });
+        if (purpose === 'LOGIN') {
+            res.status(404).json({ error: 'No account found for this email. Create the account first, then use OTP login.' });
+            return;
+        }
+
+        if (purpose === 'FORGOT_PASSWORD') {
+            res.status(404).json({ error: 'Account with this email not found.' });
+            return;
+        }
+
+        res.status(404).json({ error: 'No account found for this email. Please create the account first.' });
+        return;
+    }
+
+    if (!user.isActive) {
+        respondAccountLocked(res);
         return;
     }
 
@@ -277,6 +344,7 @@ router.post('/request-otp', validate(otpRequestSchema), asyncHandler(async (req:
     });
 
     await sendOTPEmail(email, otp, purpose);
+    recordOtpCooldown(cooldownKey);
 
     res.json({ message: 'OTP sent to your email.' });
 }));
@@ -286,6 +354,11 @@ router.post('/request-otp', validate(otpRequestSchema), asyncHandler(async (req:
 // ==========================================
 router.post('/request-registration-otp', validate(otpRequestSchema), asyncHandler(async (req: Request, res: Response) => {
     const { email } = req.body;
+    const cooldownKey = getOtpCooldownKey(email, 'REGISTER_VERIFY_EMAIL');
+
+    if (respondOtpCooldown(res, cooldownKey)) {
+        return;
+    }
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -305,6 +378,7 @@ router.post('/request-registration-otp', validate(otpRequestSchema), asyncHandle
     });
 
     await sendOTPEmail(email, otp, 'VERIFY_EMAIL');
+    recordOtpCooldown(cooldownKey);
 
     res.json({ message: 'Verification code sent to your email.' });
 }));
@@ -321,6 +395,11 @@ router.post('/login-otp', validate(otpVerifySchema), asyncHandler(async (req: Re
     if (!user) {
         console.warn(`[AUTH] Login OTP failed: User not found (${email})`);
         res.status(401).json({ error: 'Invalid or expired OTP' });
+        return;
+    }
+
+    if (!user.isActive) {
+        respondAccountLocked(res);
         return;
     }
 
@@ -384,6 +463,11 @@ router.post('/verify-email', validate(emailVerifySchema), asyncHandler(async (re
         return;
     }
 
+    if (!user.isActive) {
+        respondAccountLocked(res);
+        return;
+    }
+
     await prisma.user.update({
         where: { id: user.id },
         data: { 
@@ -402,11 +486,22 @@ router.post('/verify-email', validate(emailVerifySchema), asyncHandler(async (re
 
 router.post('/forgot-password', validate(forgotPasswordSchema), asyncHandler(async (req: Request, res: Response) => {
     const { email } = req.body;
+    const cooldownKey = getOtpCooldownKey(email, 'FORGOT_PASSWORD');
+
+    if (respondOtpCooldown(res, cooldownKey)) {
+        return;
+    }
+
     const user = await prisma.user.findUnique({ where: { email } });
     
     if (!user) {
         console.warn(`[AUTH] Forgot Password requested for non-existent email: ${email}`);
         res.status(404).json({ error: 'Account with this email not found.' });
+        return;
+    }
+
+    if (!user.isActive) {
+        respondAccountLocked(res);
         return;
     }
 
@@ -419,6 +514,7 @@ router.post('/forgot-password', validate(forgotPasswordSchema), asyncHandler(asy
     });
 
     await sendOTPEmail(email, otp, 'FORGOT_PASSWORD');
+    recordOtpCooldown(cooldownKey);
 
     console.log(`[AUTH] Forgot Password OTP (${otp}) sent to ${email}`);
     res.json({ message: 'A 6-digit OTP has been sent to your email.' });

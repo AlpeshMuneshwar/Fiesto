@@ -8,7 +8,7 @@ import ChefDashboardScreen from '../screens/ChefDashboardScreen';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import SuperAdminDashboardScreen from '../screens/SuperAdminDashboardScreen';
 import LandingScreen from '../screens/LandingScreen';
-import DiscoveryPortalScreen from '../screens/DiscoveryPortalScreen';
+import DiscoveryPortalWebScreen from '../screens/DiscoveryPortalWebScreen';
 import TableSelectionScreen from '../screens/TableSelectionScreen';
 import CafeRegistrationScreen from '../screens/CafeRegistrationScreen';
 import AdminTableManagementScreen from '../screens/AdminTableManagementScreen';
@@ -17,9 +17,9 @@ import AdminStaffManagementScreen from '../screens/AdminStaffManagementScreen';
 import AdminSettingsScreen from '../screens/AdminSettingsScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
-import AdminReportsScreen from '../screens/AdminReportsScreen';
+import AdminReportsWebScreen from '../screens/AdminReportsWebScreen';
 import ReservationSuccessScreen from '../screens/ReservationSuccessScreen';
-import CustomerProfileScreen from '../screens/CustomerProfileScreen';
+import CustomerProfileWebScreen from '../screens/CustomerProfileWebScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 
 const Stack = createNativeStackNavigator();
@@ -65,7 +65,7 @@ export default function AppNavigator() {
             }}
         >
             <Stack.Screen name="Landing" component={LandingScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="DiscoveryPortal" component={DiscoveryPortalScreen as any} options={{ title: 'Find a Cafe' }} />
+            <Stack.Screen name="DiscoveryPortal" component={DiscoveryPortalWebScreen as any} options={{ headerShown: false }} />
             <Stack.Screen name="TableSelection" component={TableSelectionScreen as any} options={{ title: 'Reserve a Table' }} />
             <Stack.Screen name="CafeRegistration" component={CafeRegistrationScreen} options={{ title: 'Cafe Onboarding' }} />
             <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Login' }} />
@@ -80,10 +80,10 @@ export default function AppNavigator() {
             <Stack.Screen name="AdminMenuManagement" component={AdminMenuManagementScreen} options={{ title: 'Menu Management' }} />
             <Stack.Screen name="AdminStaffManagement" component={AdminStaffManagementScreen} options={{ title: 'Staff Recruitment' }} />
             <Stack.Screen name="AdminSettings" component={AdminSettingsScreen} options={{ title: 'Cafe Settings' }} />
-            <Stack.Screen name="AdminReports" component={AdminReportsScreen} options={{ title: 'Sales Reports' }} />
+            <Stack.Screen name="AdminReports" component={AdminReportsWebScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SuperAdminDashboard" component={SuperAdminDashboardScreen} options={{ title: 'Platform Control' }} />
             <Stack.Screen name="ReservationSuccess" component={ReservationSuccessScreen as any} options={{ headerShown: false }} />
-            <Stack.Screen name="CustomerProfile" component={CustomerProfileScreen as any} options={{ title: 'My Bookings', headerStyle: { backgroundColor: '#0F172A' }, headerTintColor: '#fff' }} />
+            <Stack.Screen name="CustomerProfile" component={CustomerProfileWebScreen as any} options={{ headerShown: false }} />
             <Stack.Screen name="Register" component={RegisterScreen as any} options={{ headerShown: false }} />
         </Stack.Navigator>
     );

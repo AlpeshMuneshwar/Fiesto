@@ -369,6 +369,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 const { width } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 const toastWidth = isWeb ? Math.min(450, width - 32) : width - 32;
+const webTextWrap = isWeb ? ({ wordBreak: 'break-word', overflowWrap: 'anywhere' } as any) : {};
 
 const styles = StyleSheet.create({
     toastOverlay: {
@@ -376,13 +377,16 @@ const styles = StyleSheet.create({
         top: Platform.OS === 'ios' ? 50 : 30,
         left: 0,
         right: 0,
+        width: '100%',
+        paddingHorizontal: 16,
         alignItems: 'center',
         zIndex: 99999,
         elevation: 99999,
         pointerEvents: 'box-none',
     },
     toastContainer: {
-        width: toastWidth,
+        width: '100%',
+        maxWidth: toastWidth,
         marginBottom: 8,
         borderRadius: 12,
         borderLeftWidth: 4,
@@ -402,6 +406,7 @@ const styles = StyleSheet.create({
     } as any,
     toastContent: {
         padding: 14,
+        width: '100%',
     },
     toastHeader: {
         flexDirection: 'row',
@@ -413,6 +418,9 @@ const styles = StyleSheet.create({
         fontSize: 15,
         fontWeight: '700',
         flex: 1,
+        minWidth: 0,
+        flexShrink: 1,
+        ...webTextWrap,
     },
     dismissBtn: {
         fontSize: 16,
@@ -424,6 +432,9 @@ const styles = StyleSheet.create({
         fontSize: 13,
         lineHeight: 18,
         opacity: 0.9,
+        width: '100%',
+        flexShrink: 1,
+        ...webTextWrap,
     },
     detailsContainer: {
         marginTop: 8,
@@ -435,6 +446,9 @@ const styles = StyleSheet.create({
         fontSize: 12,
         lineHeight: 18,
         opacity: 0.8,
+        width: '100%',
+        flexShrink: 1,
+        ...webTextWrap,
     },
 });
 

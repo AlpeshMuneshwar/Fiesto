@@ -13,10 +13,13 @@ declare module 'axios' {
 
 const isWeb = typeof window !== 'undefined';
 const webOrigin = isWeb ? window.location.origin : '';
+const isDevelopmentWeb = isWeb && process.env.NODE_ENV !== 'production';
+const defaultWebApiBaseUrl = isDevelopmentWeb ? 'http://127.0.0.1:4000' : webOrigin;
 
-// On web, default to same-origin so nginx can proxy /api, /socket.io, and /uploads.
+// In local web development, talk to the backend directly instead of the Expo dev server.
+// In production web builds, default to same-origin so nginx can proxy /api, /socket.io, and /uploads.
 // Native builds can override this with EXPO_PUBLIC_API_URL at bundle time.
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (isWeb ? webOrigin : 'http://127.0.0.1:4000');
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (isWeb ? defaultWebApiBaseUrl : 'http://127.0.0.1:4000');
 export const SOCKET_URL = API_BASE_URL;
 
 const baseURL = `${API_BASE_URL}/api`;
@@ -44,13 +47,20 @@ client.interceptors.request.use(async (config) => {
 client.interceptors.response.use(
     (response) => {
         const config = response.config;
+        const isHtmlPayload =
+            typeof response.data === 'string' &&
+            /<!doctype html|<html/i.test(response.data);
         
         // Show success toast if requested
-        if (config.showSuccessToast) {
+        if (config.showSuccessToast && !isHtmlPayload) {
             const toast = getGlobalToast();
             if (toast) {
                 toast.showSuccess(config.successMessage || 'Action completed successfully');
             }
+        }
+
+        if (config.showSuccessToast && isHtmlPayload) {
+            console.warn(`[API Warning] Skipped success toast for unexpected HTML response from ${config.url}`);
         }
         
         return response;
