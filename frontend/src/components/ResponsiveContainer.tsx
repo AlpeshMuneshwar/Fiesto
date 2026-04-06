@@ -11,7 +11,7 @@ export default function ResponsiveContainer({ children, maxWidth = 1200, style }
     const { width } = useWindowDimensions();
 
     // Calculate horizontal padding to center the content on wide screens
-    const horizontalPadding = width > maxWidth ? (width - maxWidth) / 2 : 0;
+    const horizontalPadding = width > maxWidth ? (width - maxWidth) / 2 : 20;
 
     return (
         <View style={[

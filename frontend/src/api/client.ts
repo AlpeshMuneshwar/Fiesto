@@ -12,7 +12,11 @@ declare module 'axios' {
 }
 
 const isWeb = typeof window !== 'undefined';
-export const API_BASE_URL = 'https://thalloid-liza-unscholastically.ngrok-free.dev';
+const webOrigin = isWeb ? window.location.origin : '';
+
+// On web, default to same-origin so nginx can proxy /api, /socket.io, and /uploads.
+// Native builds can override this with EXPO_PUBLIC_API_URL at bundle time.
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (isWeb ? webOrigin : 'http://127.0.0.1:4000');
 export const SOCKET_URL = API_BASE_URL;
 
 const baseURL = `${API_BASE_URL}/api`;
@@ -22,6 +26,7 @@ const client = axios.create({
     timeout: 15000, // 15 second timeout
     headers: {
         'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true',
     },
 });
 

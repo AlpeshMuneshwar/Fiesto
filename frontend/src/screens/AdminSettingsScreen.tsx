@@ -38,7 +38,7 @@ export default function AdminSettingsScreen() {
             delete payload.cafeId;
 
             const res = await client.put('/settings', payload);
-            setSettings(res.data);
+            setSettings(res.data.settings);
             Alert.alert("Success", "Settings updated successfully");
         } catch (error: any) {
             Alert.alert("Error", error.response?.data?.error || "Failed to save settings");
@@ -122,11 +122,21 @@ export default function AdminSettingsScreen() {
                     {settings.taxEnabled && (
                         <View style={styles.subFields}>
                             <View style={styles.inputRow}>
-                                <Text style={styles.inputLabel}>Tax Label</Text>
+                                <Text style={styles.inputLabel}>Tax Label (e.g. GST)</Text>
                                 <TextInput 
                                     style={styles.input} 
                                     value={settings.taxLabel} 
                                     onChangeText={(v) => setSettings({ ...settings, taxLabel: v })} 
+                                />
+                            </View>
+                            <View style={styles.inputRow}>
+                                <Text style={styles.inputLabel}>GST Number (Optional)</Text>
+                                <TextInput 
+                                    style={styles.input} 
+                                    value={settings.gstNumber} 
+                                    placeholder="e.g. 27AAAAA0000A1Z5"
+                                    placeholderTextColor="#64748B"
+                                    onChangeText={(v) => setSettings({ ...settings, gstNumber: v })} 
                                 />
                             </View>
                             <View style={styles.inputRow}>

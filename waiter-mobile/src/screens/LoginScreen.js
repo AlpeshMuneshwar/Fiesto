@@ -1,78 +1,290 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useAuth } from '../context/AuthContext';
-import { LogIn } from 'lucide-react-native';
+import { LogIn, ArrowRight } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function LoginScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [otp, setOtp] = useState('');
+    const [isOtpMode, setIsOtpMode] = useState(false);
+    const [showingVerification, setShowingVerification] = useState(false);
     const [loading, setLoading] = useState(false);
-    const { login } = useAuth();
+    
+    const { login, loginWithOtp, requestOtp, verifyEmail } = useAuth();
 
     const handleLogin = async () => {
-        if (!email || !password) {
-            Alert.alert('Error', 'Please enter both email and password');
+        if (!email) {
+            Alert.alert('Error', 'Please enter your email address');
+            return;
+        }
+        if (isOtpMode && !otp) {
+            Alert.alert('Error', 'Please enter the 6-digit OTP');
+            return;
+        }
+        if (!isOtpMode && !password) {
+            Alert.alert('Error', 'Please enter your password');
             return;
         }
         setLoading(true);
         try {
-            await login(email, password);
+            if (isOtpMode) {
+                await loginWithOtp(email, otp);
+            } else {
+                await login(email, password);
+            }
         } catch (e) {
-            Alert.alert('Login Failed', e.message || 'Check credentials');
+            if (e.needsVerification) {
+                setShowingVerification(true);
+                Alert.alert('Verification Required', 'Please check your email for the OTP.');
+            } else {
+                Alert.alert('Login Failed', e.message || 'Check credentials');
+            }
         } finally {
             setLoading(false);
         }
     };
 
-    return (
-        <View style={styles.container}>
-            <View style={styles.card}>
-                <View style={styles.iconContainer}>
-                    <LogIn color="#0EA5E9" size={40} />
-                </View>
-                <Text style={styles.title}>Waiter Portal</Text>
-                <Text style={styles.subtitle}>Enter your credentials to manage table calls</Text>
+    const handleSendOtp = async () => {
+        if (!email) {
+            Alert.alert('Error', 'Please enter email first');
+            return;
+        }
+        setLoading(true);
+        try {
+            await requestOtp(email, showingVerification ? 'VERIFY_EMAIL' : 'LOGIN');
+            Alert.alert('Success', 'OTP sent to your email');
+        } catch (e) {
+            Alert.alert('Error', e.message || 'Failed to send OTP');
+        } finally {
+            setLoading(false);
+        }
+    };
 
+    const handleVerifyEmail = async () => {
+        if (!otp) {
+            Alert.alert('Error', 'Please enter OTP');
+            return;
+        }
+        setLoading(true);
+        try {
+            await verifyEmail(email, otp);
+            Alert.alert('Success', 'Email verified! You can now login.');
+            setShowingVerification(false);
+            setOtp('');
+        } catch (e) {
+            Alert.alert('Verification Failed', e.message || 'Check OTP');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const renderVerificationUI = () => (
+        <View style={styles.card}>
+            <View style={styles.iconContainer}>
+                <LogIn color="#FFFFFF" size={36} />
+            </View>
+            <Text style={styles.title}>Verify Email</Text>
+            <Text style={styles.subtitle}>Enter the 6-digit OTP sent to {email}</Text>
+
+            <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>OTP CODE</Text>
                 <TextInput
                     style={styles.input}
-                    placeholder="Email Address"
+                    placeholder="• • • • • •"
+                    placeholderTextColor="#94A3B8"
+                    value={otp}
+                    onChangeText={setOtp}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                />
+            </View>
+
+            <TouchableOpacity 
+                style={[styles.button, loading && styles.buttonDisabled]} 
+                onPress={handleVerifyEmail}
+                disabled={loading}
+                activeOpacity={0.8}
+            >
+                {loading ? <ActivityIndicator color="white" /> : (
+                    <>
+                        <Text style={styles.buttonText}>Verify & Continue</Text>
+                        <ArrowRight color="#FFFFFF" size={20} />
+                    </>
+                )}
+            </TouchableOpacity>
+
+            <View style={styles.footerLinksGrid}>
+                <TouchableOpacity onPress={handleSendOtp} style={styles.linkButtonSecondary}>
+                    <Text style={styles.linkTextSecondary}>Resend OTP</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowingVerification(false)} style={styles.linkButtonSecondary}>
+                    <Text style={styles.linkTextSecondary}>Back to Login</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+    );
+
+    const renderLoginUI = () => (
+        <View style={styles.card}>
+            <View style={styles.iconContainer}>
+                <LogIn color="#FFFFFF" size={36} />
+            </View>
+            <Text style={styles.title}>Waiter Portal</Text>
+            <Text style={styles.subtitle}>Manage your tables efficiently</Text>
+
+            <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>EMAIL ADDRESS</Text>
+                <TextInput
+                    style={styles.input}
+                    placeholder="Enter your email"
+                    placeholderTextColor="#94A3B8"
                     value={email}
                     onChangeText={setEmail}
                     autoCapitalize="none"
                     keyboardType="email-address"
                 />
-                <TextInput
-                    style={styles.input}
-                    placeholder="Password"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry
-                />
+            </View>
 
-                <TouchableOpacity 
-                    style={[styles.button, loading && styles.buttonDisabled]} 
-                    onPress={handleLogin}
-                    disabled={loading}
-                >
-                    {loading ? (
-                        <ActivityIndicator color="white" />
-                    ) : (
-                        <Text style={styles.buttonText}>Sign In</Text>
-                    )}
+            {!isOtpMode ? (
+                <View style={styles.inputGroup}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={styles.inputLabel}>PASSWORD</Text>
+                        <TouchableOpacity onPress={() => Alert.alert('Forgot Password', 'Please contact your Admin to reset your password, or use Login with OTP.')}>
+                            <Text style={styles.linkTextSmall}>Forgot?</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="••••••••"
+                        placeholderTextColor="#94A3B8"
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry
+                    />
+                </View>
+            ) : (
+                <View style={styles.inputGroup}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={styles.inputLabel}>OTP CODE</Text>
+                        <TouchableOpacity onPress={handleSendOtp}>
+                            <Text style={styles.linkTextSmall}>Send OTP</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="• • • • • •"
+                        placeholderTextColor="#94A3B8"
+                        value={otp}
+                        onChangeText={setOtp}
+                        keyboardType="number-pad"
+                        maxLength={6}
+                    />
+                </View>
+            )}
+
+            <TouchableOpacity 
+                style={[styles.button, loading && styles.buttonDisabled]} 
+                onPress={handleLogin}
+                disabled={loading}
+                activeOpacity={0.8}
+            >
+                {loading ? (
+                    <ActivityIndicator color="white" />
+                ) : (
+                    <>
+                        <Text style={styles.buttonText}>{isOtpMode ? 'Sign In with OTP' : 'Sign In'}</Text>
+                        <ArrowRight color="#FFFFFF" size={20} />
+                    </>
+                )}
+            </TouchableOpacity>
+
+            <View style={styles.footerLinks}>
+                <TouchableOpacity onPress={() => setIsOtpMode(!isOtpMode)} style={styles.toggleModeBtn}>
+                    <Text style={styles.linkTextSecondary}>{isOtpMode ? 'Use Password instead' : 'Login with OTP'}</Text>
                 </TouchableOpacity>
             </View>
         </View>
     );
+
+    return (
+        <LinearGradient
+            colors={['#0F172A', '#1E293B', '#334155']}
+            style={styles.container}
+        >
+            <SafeAreaView style={{ flex: 1 }}>
+                <KeyboardAvoidingView 
+                    style={{ flex: 1 }} 
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                >
+                    <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+                        {showingVerification ? renderVerificationUI() : renderLoginUI()}
+                    </ScrollView>
+                </KeyboardAvoidingView>
+            </SafeAreaView>
+        </LinearGradient>
+    );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F0F9FF', justifyContent: 'center', padding: 20 },
-    card: { backgroundColor: 'white', padding: 30, borderRadius: 24, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20 },
-    iconContainer: { alignSelf: 'center', backgroundColor: '#E0F2FE', padding: 20, borderRadius: 30, marginBottom: 20 },
-    title: { fontSize: 24, fontWeight: '800', textAlign: 'center', color: '#0F172A', marginBottom: 8 },
-    subtitle: { textAlign: 'center', color: '#64748B', marginBottom: 30, fontSize: 14 },
-    input: { backgroundColor: '#F8FAFC', padding: 16, borderRadius: 12, marginBottom: 15, fontSize: 16, borderWith: 1, borderColor: '#E2E8F0' },
-    button: { backgroundColor: '#0EA5E9', padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 10 },
-    buttonDisabled: { opacity: 0.6 },
-    buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 }
+    container: { flex: 1 },
+    scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+    card: { 
+        backgroundColor: 'rgba(255, 255, 255, 0.98)', 
+        padding: 32, 
+        borderRadius: 32, 
+        shadowColor: '#000', 
+        shadowOffset: { width: 0, height: 24 }, 
+        shadowOpacity: 0.25, 
+        shadowRadius: 32,
+        elevation: 12,
+    },
+    iconContainer: { 
+        alignSelf: 'flex-start', 
+        backgroundColor: '#0EA5E9', 
+        padding: 16, 
+        borderRadius: 20, 
+        marginBottom: 24,
+        shadowColor: '#0EA5E9',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+    },
+    title: { fontSize: 32, fontWeight: '900', color: '#0F172A', marginBottom: 6, letterSpacing: -1 },
+    subtitle: { color: '#64748B', marginBottom: 32, fontSize: 16, fontWeight: '500' },
+    inputGroup: { marginBottom: 20 },
+    inputLabel: { fontSize: 12, fontWeight: '800', color: '#94A3B8', paddingLeft: 4, marginBottom: 8, letterSpacing: 0.5 },
+    input: { 
+        backgroundColor: '#F8FAFC', 
+        padding: 18, 
+        borderRadius: 16, 
+        fontSize: 16, 
+        borderWidth: 1, 
+        borderColor: '#E2E8F0',
+        fontWeight: '500',
+        color: '#0F172A'
+    },
+    button: { 
+        backgroundColor: '#0F172A', 
+        padding: 20, 
+        borderRadius: 16, 
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center', 
+        marginTop: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.2,
+        shadowRadius: 15,
+        elevation: 8,
+    },
+    buttonDisabled: { opacity: 0.7 },
+    buttonText: { color: 'white', fontWeight: '800', fontSize: 16, marginRight: 8 },
+    linkTextSmall: { color: '#0EA5E9', fontWeight: '700', fontSize: 13 },
+    footerLinks: { marginTop: 24, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#F1F5F9', alignItems: 'center' },
+    toggleModeBtn: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 12, backgroundColor: '#F8FAFC' },
+    linkTextSecondary: { color: '#64748B', fontWeight: '700', fontSize: 14 },
+    footerLinksGrid: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 24, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#F1F5F9' },
+    linkButtonSecondary: { paddingVertical: 8 }
 });

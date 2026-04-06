@@ -11,7 +11,7 @@ if (!JWT_SECRET) {
 }
 
 export interface AuthRequest extends Request {
-    user?: { id: string; role: string; cafeId: string };
+    user?: { id: string; role: string; cafeId: string; name: string };
 }
 
 export const authenticate = (req: AuthRequest, res: Response, next: NextFunction): void => {
@@ -28,7 +28,7 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
     }
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role: string; cafeId: string; type?: string };
+        const decoded = jwt.verify(token, JWT_SECRET) as { id: string; role: string; cafeId: string; name: string; type?: string };
 
         // Reject refresh tokens used as access tokens
         if (decoded.type === 'refresh') {
@@ -36,7 +36,12 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
             return;
         }
 
-        req.user = { id: decoded.id, role: decoded.role, cafeId: decoded.cafeId };
+        req.user = { 
+            id: decoded.id, 
+            role: decoded.role, 
+            cafeId: decoded.cafeId,
+            name: decoded.name 
+        };
         next();
     } catch (error: any) {
         if (error.name === 'TokenExpiredError') {

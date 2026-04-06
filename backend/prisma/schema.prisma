@@ -26,7 +26,11 @@ model Cafe {
   orders      Order[]
   sessions    Session[]
   staffCalls  StaffCall[]
+  activityLogs ActivityLog[]
   settings    CafeSettings?
+
+  createdBy   String?
+  updatedBy   String?
 }
 
 model CafeSettings {
@@ -40,6 +44,7 @@ model CafeSettings {
   taxEnabled            Boolean @default(false)
   taxRate               Float   @default(0)
   taxLabel              String  @default("GST")
+  gstNumber             String? // Store Cafe's GST Identification Number
   taxInclusive          Boolean @default(false)
   serviceChargeEnabled  Boolean @default(false)
   serviceChargeRate     Float   @default(0)
@@ -60,10 +65,14 @@ model CafeSettings {
 
   // Reservations & Pre-booking (Phase 4)
   platformFeeAmount   Float   @default(10.0)
-  preOrderAdvanceRate Float   @default(30.0) // percentage
+  preOrderAdvanceRate Float   @default(40.0) // percentage for pre-booking
   reservationsEnabled Boolean @default(true)
 
   cafe                  Cafe    @relation(fields: [cafeId], references: [id])
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  createdBy             String?
+  updatedBy             String?
 }
 
 model User {
@@ -75,12 +84,20 @@ model User {
   role      String   @default("WAITER") // SUPER_ADMIN, ADMIN, WAITER, CHEF
   isActive  Boolean  @default(true)
   pushToken String?  // Expo push notification token
+  otp       String?
+  otpExpires DateTime?
+  isEmailVerified Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
   cafe      Cafe?    @relation(fields: [cafeId], references: [id])
   approvedOrders Order[] @relation("WaiterApprovals")
   sessions  Session[]
+  activityHistory ActivityLog[]
+  preparedOrders Order[] @relation("ChefOrders")
+  
+  createdBy String?
+  updatedBy String?
 }
 
 model Table {
@@ -88,7 +105,9 @@ model Table {
   cafeId    String
   number    Int
   capacity  Int      @default(4)
+  desc      String?
   qrCodeUrl String?
+  qrToken   String?  @unique
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -97,13 +116,16 @@ model Table {
   sessions  Session[]
   staffCalls StaffCall[]
 
+  createdBy String?
+  updatedBy String?
+
   @@unique([cafeId, number])
 }
 
 model Session {
   id        String   @id @default(uuid())
   cafeId    String
-  tableId   String
+  tableId   String?
   customerId String?
   isActive  Boolean  @default(true)
   isPrebooked Boolean @default(false)
@@ -114,10 +136,13 @@ model Session {
   updatedAt DateTime @updatedAt
 
   cafe      Cafe     @relation(fields: [cafeId], references: [id])
-  table     Table    @relation(fields: [tableId], references: [id])
+  table     Table?    @relation(fields: [tableId], references: [id])
   customer  User?    @relation(fields: [customerId], references: [id])
   orders    Order[]
   staffCalls StaffCall[]
+
+  createdBy String?
+  updatedBy String?
 }
 
 model Order {
@@ -125,7 +150,9 @@ model Order {
   cafeId              String
   sessionId           String
   waiterId            String?
+  chefId              String?
   status              String   @default("PENDING_APPROVAL")
+  orderType           String   @default("DINE_IN") // DINE_IN, TAKEAWAY, PRE_ORDER
   isLocationVerified  Boolean  @default(false)
   items               String   // JSON stringified array of order items
   specialInstructions String?  // "No onions, extra spicy"
@@ -147,13 +174,17 @@ model Order {
   cafe    Cafe    @relation(fields: [cafeId], references: [id])
   session Session @relation(fields: [sessionId], references: [id])
   waiter  User?   @relation("WaiterApprovals", fields: [waiterId], references: [id])
+  chef    User?   @relation("ChefOrders", fields: [chefId], references: [id])
   payment Payment?
+
+  createdBy String?
+  updatedBy String?
 }
 
 model StaffCall {
   id        String   @id @default(uuid())
   cafeId    String
-  tableId   String
+  tableId   String?
   sessionId String
   type      String   @default("WAITER_CALL") // WAITER_CALL, CHEF_CALL
   status    String   @default("PENDING")     // PENDING, ACKNOWLEDGED, COMPLETED
@@ -163,8 +194,11 @@ model StaffCall {
   updatedAt DateTime @updatedAt
 
   cafe    Cafe    @relation(fields: [cafeId], references: [id])
-  table   Table   @relation(fields: [tableId], references: [id])
+  table   Table?   @relation(fields: [tableId], references: [id])
   session Session @relation(fields: [sessionId], references: [id])
+
+  createdBy String?
+  updatedBy String?
 }
 
 model Payment {
@@ -172,13 +206,21 @@ model Payment {
   orderId        String        @unique
   amount         Float
   status         String        @default("PENDING")
+  paymentStage   String        @default("PENDING") // PENDING, ACKNOWLEDGED, COMPLETED
   receiptImgUrl  String?
   transactionId  String?
   waiterVerified Boolean       @default(false)
+  acknowledgedAt DateTime?
+  acknowledgedBy String?       // User ID of waiter who acknowledged
+  billEmail      String?       // Customer email for receipt
+  emailSentAt    DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   order Order     @relation(fields: [orderId], references: [id])
+
+  createdBy String?
+  updatedBy String?
 }
 
 model MenuItem {
@@ -191,9 +233,38 @@ model MenuItem {
   imageUrl    String?  // menu item photo URL
   dietaryTag  String?  // VEG, NON_VEG, VEGAN, EGGETARIAN
   isAvailable Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  lastStockUpdate DateTime @default(now())
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   cafe        Cafe     @relation(fields: [cafeId], references: [id])
+
+  createdBy   String?
+  updatedBy   String?
+}
+
+model VerificationToken {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  otp       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  cafeId      String
+  staffId     String?  // Reference to User.id
+  role        String?  // WAITER, CHEF, ADMIN, CUSTOMER
+  actionType  String   // e.g., "ORDER_PLACED", "SESSION_CLOSED", "CLEAN_TABLE"
+  message     String?  // Human readable summary
+  metadata    String?  @db.Text // JSON string for detailed changes/payloads
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cafe  Cafe   @relation(fields: [cafeId], references: [id])
+  staff User?  @relation(fields: [staffId], references: [id])
 }

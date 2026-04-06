@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../prisma';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
+import { recordActivity } from '../utils/audit';
 
 const router = Router();
 
@@ -58,7 +59,20 @@ router.put('/cafes/:id/toggle', authenticate, requireRole(['SUPER_ADMIN']), asyn
 
         const updated = await prisma.cafe.update({
             where: { id },
-            data: { isActive: !cafe.isActive }
+            data: { 
+                isActive: !cafe.isActive,
+                updatedBy: req.user?.id
+            }
+        });
+
+        // Audit Log for Platform-level action
+        recordActivity({
+            cafeId: id,
+            staffId: req.user?.id,
+            role: 'SUPER_ADMIN',
+            actionType: 'SETTINGS_UPDATE',
+            message: `${updated.isActive ? 'Enabled' : 'Suspended'} Cafe: ${cafe.name}`,
+            metadata: { cafeId: id, status: updated.isActive }
         });
 
         res.json(updated);

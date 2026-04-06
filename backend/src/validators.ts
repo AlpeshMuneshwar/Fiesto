@@ -50,9 +50,26 @@ export const forgotPasswordSchema = z.object({
     email: emailSchema,
 });
 
+export const otpRequestSchema = z.object({
+    email: emailSchema,
+    purpose: z.enum(['LOGIN', 'FORGOT_PASSWORD', 'VERIFY_EMAIL']),
+});
+
+export const otpVerifySchema = z.object({
+    email: emailSchema,
+    otp: z.string().length(6, 'OTP must be 6 digits'),
+    purpose: z.enum(['LOGIN', 'FORGOT_PASSWORD', 'VERIFY_EMAIL']),
+});
+
 export const resetPasswordSchema = z.object({
-    token: z.string().min(1, 'Token is required'),
+    email: emailSchema,
+    otp: z.string().length(6, 'OTP must be 6 digits'),
     newPassword: passwordSchema,
+});
+
+export const emailVerifySchema = z.object({
+    email: emailSchema,
+    otp: z.string().length(6, 'OTP must be 6 digits'),
 });
 
 // ==========================================
@@ -65,6 +82,7 @@ export const cafeRegistrationSchema = z.object({
     ownerName: z.string().min(1, 'Owner name is required').max(100),
     ownerEmail: emailSchema,
     ownerPassword: passwordSchema,
+    otp: z.string().length(6, 'Verification code must be 6 digits'),
 });
 
 // ==========================================
@@ -77,9 +95,12 @@ export const menuItemSchema = z.object({
     price: z.number().positive('Price must be positive').max(99999, 'Price too high'),
     category: z.string().min(1, 'Category is required').max(50).default('General'),
     isAvailable: z.boolean().optional(),
+    isActive: z.boolean().optional(),
     dietaryTag: z.enum(['VEG', 'NON_VEG', 'VEGAN', 'EGGETARIAN']).optional().nullable(),
     sortOrder: z.number().int().min(0).optional(),
 });
+
+export const menuItemUpdateSchema = menuItemSchema.partial();
 
 // ==========================================
 // Order Schemas
@@ -138,6 +159,7 @@ export const billGenerateSchema = z.object({
 export const sessionStartSchema = z.object({
     cafeId: z.string().min(1, 'Cafe ID is required'),
     tableNumber: z.number().int().positive('Table number must be positive'),
+    qrToken: z.string().min(1, 'QR Token is required'),
     deviceIdentifier: z.string().optional(),
     joinCode: z.string().max(8).optional(),
 });
@@ -160,6 +182,8 @@ export const forgotCodeSchema = z.object({
 
 export const tableSchema = z.object({
     number: z.number().int().positive('Table number must be positive').max(9999),
+    desc: z.string().max(100).optional(),
+    capacity: z.number().int().min(1).max(20).optional().default(4),
 });
 
 export const staffSchema = z.object({
@@ -199,6 +223,7 @@ export const cafeSettingsSchema = z.object({
     taxEnabled: z.boolean().optional(),
     taxRate: z.number().min(0).max(100).optional(),
     taxLabel: z.string().max(20).optional(),
+    gstNumber: z.string().max(30).optional().nullable(),
     taxInclusive: z.boolean().optional(),
     serviceChargeEnabled: z.boolean().optional(),
     serviceChargeRate: z.number().min(0).max(100).optional(),

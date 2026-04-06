@@ -25,7 +25,29 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const login = async (email, password) => {
-        const res = await client.post('/auth/login', { email, password });
+        try {
+            const res = await client.post('/auth/login', { email, password });
+            const { user, token } = res.data;
+            if (user.role !== 'WAITER' && user.role !== 'ADMIN') {
+                throw new Error('Unauthorized role for this application');
+            }
+            await AsyncStorage.setItem('userToken', token);
+            await AsyncStorage.setItem('user', JSON.stringify(user));
+            setUser(user);
+            return user;
+        } catch (e) {
+            if (e.response?.data?.needsVerification) {
+                const err = new Error('Verification Required');
+                err.needsVerification = true;
+                err.email = e.response.data.email;
+                throw err;
+            }
+            throw new Error(e.response?.data?.error || e.message || 'Login failed');
+        }
+    };
+
+    const loginWithOtp = async (email, otp) => {
+        const res = await client.post('/auth/login-otp', { email, otp, purpose: 'LOGIN' });
         const { user, token } = res.data;
         if (user.role !== 'WAITER' && user.role !== 'ADMIN') {
             throw new Error('Unauthorized role for this application');
@@ -36,6 +58,18 @@ export const AuthProvider = ({ children }) => {
         return user;
     };
 
+    const requestOtp = async (email, purpose) => {
+        await client.post('/auth/request-otp', { email, purpose });
+    };
+
+    const verifyEmail = async (email, otp) => {
+        await client.post('/auth/verify-email', { email, otp });
+    };
+
+    const resetPassword = async (email, otp, newPassword) => {
+        await client.post('/auth/reset-password', { email, otp, newPassword });
+    };
+
     const logout = async () => {
         await AsyncStorage.removeItem('userToken');
         await AsyncStorage.removeItem('user');
@@ -43,7 +77,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     return (
-        <AuthContext.Provider value={{ user, login, logout, loading }}>
+        <AuthContext.Provider value={{ user, login, loginWithOtp, requestOtp, verifyEmail, resetPassword, logout, loading }}>
             {children}
         </AuthContext.Provider>
     );

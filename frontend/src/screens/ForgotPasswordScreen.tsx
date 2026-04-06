@@ -13,10 +13,10 @@ export default function ForgotPasswordScreen({ navigation }: any) {
         setLoading(true);
         try {
             const res = await client.post('/auth/forgot-password', { email });
-            setSent(true);
-            Alert.alert("Success", res.data.message);
+            Alert.alert("OTP Sent", "A 6-digit verification code has been sent to your email.");
+            navigation.navigate('ResetPassword', { email });
         } catch (e: any) {
-            // Error mapped by global toast interceptor
+            // Error handled by global toast
         } finally {
             setLoading(false);
         }
@@ -26,33 +26,23 @@ export default function ForgotPasswordScreen({ navigation }: any) {
         <SafeAreaView style={styles.container}>
             <ResponsiveContainer maxWidth={400} style={styles.inner}>
                 <Text style={styles.title}>Forgot Password</Text>
-                {sent ? (
-                    <>
-                        <Text style={styles.desc}>Check your email for the reset link. (For local development, check the backend console logs!)</Text>
-                        <TouchableOpacity style={styles.btn} onPress={() => navigation.navigate('Login')}>
-                            <Text style={styles.btnText}>Back to Login</Text>
-                        </TouchableOpacity>
-                    </>
-                ) : (
-                    <>
-                        <Text style={styles.desc}>Enter your email address and we'll send you a link to reset your password.</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Email Address"
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            value={email}
-                            onChangeText={setEmail}
-                        />
-                        <TouchableOpacity style={styles.btn} onPress={handleSend} disabled={loading}>
-                            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Send Reset Link</Text>}
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity style={{marginTop: 20}} onPress={() => navigation.navigate('ResetPassword', { token: 'MANUAL_TEST' })}>
-                            <Text style={styles.secondaryText}>I have a reset token</Text>
-                        </TouchableOpacity>
-                    </>
-                )}
+                <Text style={styles.desc}>Enter your email address and we'll send you a 6-digit code to reset your password.</Text>
+                
+                <TextInput
+                    style={styles.input}
+                    placeholder="Email Address"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={email}
+                    onChangeText={setEmail}
+                />
+                <TouchableOpacity style={styles.btn} onPress={handleSend} disabled={loading}>
+                    {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Send Reset OTP</Text>}
+                </TouchableOpacity>
+                
+                <TouchableOpacity style={{marginTop: 20}} onPress={() => navigation.navigate('Login')}>
+                    <Text style={styles.secondaryText}>Back to Login</Text>
+                </TouchableOpacity>
             </ResponsiveContainer>
         </SafeAreaView>
     );

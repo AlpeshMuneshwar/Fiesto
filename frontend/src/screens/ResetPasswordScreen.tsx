@@ -4,17 +4,21 @@ import client from '../api/client';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 
 export default function ResetPasswordScreen({ route, navigation }: any) {
-    const { token } = route.params || {};
-    const [manualToken, setManualToken] = useState(token === 'MANUAL_TEST' ? '' : token);
+    const { email: initialEmail } = route.params || {};
+    const [email, setEmail] = useState(initialEmail || '');
+    const [otp, setOtp] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [loading, setLoading] = useState(false);
 
     const handleReset = async () => {
-        if (!newPassword || (!manualToken && !token)) return;
+        if (!email || !otp || !newPassword) {
+            Alert.alert("Error", "Please fill all fields");
+            return;
+        }
         setLoading(true);
         try {
-            const res = await client.post('/auth/reset-password', { token: manualToken || token, newPassword });
-            Alert.alert("Success", res.data.message);
+            const res = await client.post('/auth/reset-password', { email, otp, newPassword });
+            Alert.alert("Success", "Password reset successfully. You can now login with your new password.");
             navigation.replace('Login');
         } catch (e: any) {
             // Global toast handles error
@@ -26,27 +30,40 @@ export default function ResetPasswordScreen({ route, navigation }: any) {
     return (
         <SafeAreaView style={styles.container}>
             <ResponsiveContainer maxWidth={400} style={styles.inner}>
-                <Text style={styles.title}>Set New Password</Text>
-                <Text style={styles.desc}>Enter your new password to securely regain access to your account.</Text>
-                
-                {(!token || token === 'MANUAL_TEST') && (
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Paste Reset Token Here"
-                        value={manualToken}
-                        onChangeText={setManualToken}
-                    />
-                )}
+                <Text style={styles.title}>Reset Password</Text>
+                <Text style={styles.desc}>Enter the 6-digit code sent to your email and choose a new password.</Text>
                 
                 <TextInput
                     style={styles.input}
-                    placeholder="New Password (min 8 chars, 1 uppercase, 1 number)"
+                    placeholder="Email Address"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                />
+
+                <TextInput
+                    style={styles.input}
+                    placeholder="6-digit OTP"
+                    value={otp}
+                    onChangeText={setOtp}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                />
+                
+                <TextInput
+                    style={styles.input}
+                    placeholder="New Password"
                     secureTextEntry
                     value={newPassword}
                     onChangeText={setNewPassword}
                 />
                 <TouchableOpacity style={styles.btn} onPress={handleReset} disabled={loading}>
                     {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Reset Password</Text>}
+                </TouchableOpacity>
+
+                <TouchableOpacity style={{marginTop: 20}} onPress={() => navigation.navigate('Login')}>
+                    <Text style={{color: '#3B82F6', textAlign: 'center', fontWeight: '600'}}>Back to Login</Text>
                 </TouchableOpacity>
             </ResponsiveContainer>
         </SafeAreaView>

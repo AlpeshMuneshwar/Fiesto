@@ -35,26 +35,30 @@ app.use(helmet({
 // CORS: Strict origin allowlist from environment
 const allowedOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-    : ['http://localhost:8081', 'http://localhost:8082'];
+    : [
+        'http://localhost:8081', 'http://127.0.0.1:8081',
+        'http://localhost:8082', 'http://127.0.0.1:8082',
+        'http://localhost:8083', 'http://127.0.0.1:8083',
+        'http://localhost:19006', 'http://localhost:3000'
+      ];
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow requests with no origin (mobile apps, curl, etc.)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.includes(origin)) {
+        // Allow all origins in development for easier testing across ngrok/local
+        if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
             return callback(null, true);
         }
         return callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
 }));
 
 // Rate Limiting: Global — 100 requests per 15 minutes per IP
 const globalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100,
+    max: 1000, // Increased from 100 to support polling dashboard clusters safely
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests. Please try again later.' },
@@ -65,7 +69,7 @@ app.use(globalLimiter);
 // Stricter rate limiter for auth routes (login, register)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 20, // Only 20 auth attempts per 15 min per IP
+    max: 50, // Increased from 20 to be slightly more forgiving for legit failed attempts
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many authentication attempts. Please try again later.' },
@@ -92,6 +96,8 @@ import superAdminRouter from './routes/super-admin';
 import settingsRouter from './routes/settings';
 import discoverRouter from './routes/discover';
 import reservationRouter from './routes/reservation';
+import tableManagementRouter from './routes/table-management';
+import customerRouter from './routes/customer';
 
 // Serve receipt uploads publicly
 app.use('/uploads', express.static(process.cwd() + '/uploads'));
@@ -117,6 +123,8 @@ app.use('/api/super-admin', superAdminRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/discover', discoverRouter);
 app.use('/api/reservation', reservationRouter);
+app.use('/api/table-management', tableManagementRouter);
+app.use('/api/customer', customerRouter);
 
 // ==========================================
 // Global Error Handler
@@ -128,6 +136,8 @@ app.use(globalErrorHandler);
 // ==========================================
 // Socket.IO Connection Handling
 // ==========================================
+
+import { recordActivity } from './utils/audit';
 
 io.on('connection', (socket) => {
     const userData = (socket as any).userData;
@@ -157,7 +167,8 @@ io.on('connection', (socket) => {
                         sessionId: data.sessionId,
                         type: data.type || 'WAITER_CALL',
                         message: data.message,
-                        status: 'PENDING'
+                        status: 'PENDING',
+                        createdBy: userData?.id || 'CUSTOMER'
                     },
                     include: { table: true }
                 });
@@ -183,9 +194,20 @@ io.on('connection', (socket) => {
                 where: { id: data.callId },
                 data: { 
                     status: 'ACKNOWLEDGED',
-                    staffId: data.waiterId
+                    staffId: userData?.id || data.waiterId,
+                    updatedBy: userData?.id || data.waiterId
                 },
                 include: { session: true, table: true }
+            });
+
+            // Audit Log
+            recordActivity({
+                cafeId: staffCall.cafeId,
+                staffId: userData?.id || data.waiterId,
+                role: userData?.role || 'WAITER',
+                actionType: 'CALL_ACKNOWLEDGED',
+                message: `Waiter ${data.waiterName || userData?.name || 'Staff'} acknowledged ${staffCall.table ? `Table ${staffCall.table.number}` : 'Takeaway Order'}`,
+                metadata: { callId: staffCall.id, tableNumber: staffCall.table?.number }
             });
 
             // Notify customer session
@@ -214,8 +236,19 @@ io.on('connection', (socket) => {
                     sessionId: data.sessionId,
                     type: 'PICKUP_CALL',
                     message: `Food is ready for Table ${data.tableNumber}!`,
-                    status: 'PENDING'
+                    status: 'PENDING',
+                    createdBy: userData?.id || 'CHEF_AUTO'
                 }
+            });
+
+            // Audit logic for Kitchen Pickup call
+            recordActivity({
+                cafeId: data.cafeId,
+                staffId: userData?.id,
+                role: 'CHEF',
+                actionType: 'ORDER_READY',
+                message: `Kitchen called for Pickup: Table ${data.tableNumber}`,
+                metadata: { tableNumber: data.tableNumber, sessionId: data.sessionId }
             });
 
             // Broadcast to waiters of this cafe
@@ -261,8 +294,8 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 4000;
 
-httpServer.listen(PORT, () => {
+httpServer.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`\n🔒 Security middleware active: Helmet, CORS, Rate Limiting`);
     console.log(`🌐 Allowed origins: ${allowedOrigins.join(', ')}`);
-    console.log(`🚀 Server running on http://localhost:${PORT}\n`);
+    console.log(`🚀 Server running on http://127.0.0.1:${PORT}\n`);
 });

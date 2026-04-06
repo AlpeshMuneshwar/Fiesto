@@ -4,6 +4,7 @@ import { validate } from '../validators';
 import { reservationSchema } from '../validators';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { io } from '../socket';
+import { recordActivity } from '../utils/audit';
 
 const router = Router();
 
@@ -62,8 +63,9 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
                 isActive: true, // Locks the table
                 isPrebooked: true,
                 deviceIdentifier,
-                scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
-                joinCode: Math.floor(1000 + Math.random() * 9000).toString() // 4-digit token
+                joinCode: Math.floor(1000 + Math.random() * 9000).toString(), // 4-digit token
+                createdBy: customerId,
+                updatedBy: customerId
             }
         });
 
@@ -101,7 +103,9 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
                     platformFee,
                     advancePaid,
                     totalAmount: grandTotal, // full total to be tracked
-                    isLocationVerified: true // assuming if they pre-book it's remote intent
+                    isLocationVerified: true, // assuming if they pre-book it's remote intent
+                    createdBy: customerId,
+                    updatedBy: customerId
                 }
             });
 
@@ -112,10 +116,12 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
             });
         }
 
-        // Notify Waiters of incoming reservation
-        io.to(`WAITER_${cafeId}`).emit('call_waiter', {
-            type: 'RESERVATION',
-            message: `Table ${table.number} has been pre-booked for a party of ${partySize}!`
+        // Audit Log for Reservation
+        recordActivity({
+            cafeId,
+            actionType: 'SESSION_START',
+            message: `New Reservation for Table ${table.number} (Party: ${partySize})`,
+            metadata: { sessionId: session.id, partySize, orderId: order?.id }
         });
 
         res.json({

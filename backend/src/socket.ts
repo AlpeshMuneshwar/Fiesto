@@ -5,14 +5,25 @@ import jwt from 'jsonwebtoken';
 let io: Server;
 
 export const initSocket = (httpServer: HttpServer) => {
-    // Parse allowed CORS origins from environment
+    // Parse allowed CORS origins from environment — must match Express CORS
     const allowedOrigins = process.env.CORS_ORIGINS
         ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-        : ['http://localhost:8081', 'http://localhost:8082'];
+        : [
+            'http://localhost:8081', 'http://127.0.0.1:8081',
+            'http://localhost:8082', 'http://127.0.0.1:8082',
+            'http://localhost:8083', 'http://127.0.0.1:8083',
+            'http://localhost:19006', 'http://localhost:3000'
+          ];
 
     io = new Server(httpServer, {
         cors: {
-            origin: allowedOrigins,
+            origin: (origin, callback) => {
+                // In development, allow all origins for easier testing
+                if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+                    return callback(null, true);
+                }
+                return callback(new Error('Socket CORS blocked'));
+            },
             methods: ['GET', 'POST'],
             credentials: true,
         },

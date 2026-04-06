@@ -34,6 +34,7 @@ error_log
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
 
 # macOS
 .DS_Store
@@ -52,6 +53,10 @@ backend/dist/
 frontend/dist/
 chef-mobile/dist/
 waiter-mobile/dist/
+
+# Local backend artifacts
+backend/prisma_out.txt
+backend/server_log.txt
 
 # Sub-packages .git folders (we are consolidating)
 */.git

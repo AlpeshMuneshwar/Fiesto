@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, TextInput, SafeAreaView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, TextInput, SafeAreaView, Platform, useWindowDimensions } from 'react-native';
 import client from '../api/client';
 import { StatusBar } from 'expo-status-bar';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 
 export default function AdminStaffManagementScreen({ navigation }: any) {
+    const { width } = useWindowDimensions();
+    const isDesktop = width > 768;
+    
     const [staff, setStaff] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [modalVisible, setModalVisible] = useState(false);
@@ -12,6 +15,7 @@ export default function AdminStaffManagementScreen({ navigation }: any) {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [formError, setFormError] = useState('');
+    const [showInactive, setShowInactive] = useState(false);
 
     useEffect(() => {
         fetchStaff();
@@ -36,14 +40,15 @@ export default function AdminStaffManagementScreen({ navigation }: any) {
         }
         setSaving(true);
         try {
+            const normalizedEmail = form.email.toLowerCase().trim();
             if (editingId) {
                 // Strip empty password so backend doesn't receive it
-                const updateData: any = { name: form.name, email: form.email, role: form.role, isActive: form.isActive };
+                const updateData: any = { name: form.name, email: normalizedEmail, role: form.role, isActive: form.isActive };
                 if (form.password) updateData.password = form.password;
                 const res = await client.put(`/admin/staff/${editingId}`, updateData);
                 setStaff(prev => prev.map(s => s.id === editingId ? { ...s, ...res.data } : s));
             } else {
-                const res = await client.post('/admin/staff', form);
+                const res = await client.post('/admin/staff', { ...form, email: normalizedEmail });
                 setStaff(prev => [...prev, res.data]);
                 Alert.alert("Success", `Staff member ${form.name} created successfully.`);
             }
@@ -62,14 +67,14 @@ export default function AdminStaffManagementScreen({ navigation }: any) {
     };
 
     const handleDelete = (id: string) => {
-        Alert.alert("Delete Staff", "Are you sure? Past order associations will be preserved by automatically deactivating them instead of hard deletion.", [
+        Alert.alert("Archive Staff", "This staff member will be removed from your active list but their past history and data will be safely preserved in your records.", [
             { text: "Cancel", style: "cancel" },
-            { text: "Delete", style: "destructive", onPress: async () => {
+            { text: "Confirm Archive", style: "destructive", onPress: async () => {
                 try {
                     await client.delete(`/admin/staff/${id}`);
-                    fetchStaff(); // Refresh the list since they might be deactivated or deleted
+                    fetchStaff(); 
                 } catch (e: any) {
-                    Alert.alert("Error", e.response?.data?.error || "Delete failed");
+                    Alert.alert("Error", e.response?.data?.error || "Archive failed");
                 }
             }}
         ]);
@@ -95,41 +100,55 @@ export default function AdminStaffManagementScreen({ navigation }: any) {
             <StatusBar style="light" />
             <ScrollView contentContainerStyle={{ padding: 20 }}>
                 <ResponsiveContainer maxWidth={800}>
-                    <View style={styles.headerRow}>
-                        <Text style={styles.title}>Staff Hub</Text>
-                        <TouchableOpacity style={styles.addBtn} onPress={() => setModalVisible(true)}>
+                    <View style={[styles.headerRow, !isDesktop && { flexDirection: 'column', alignItems: 'flex-start', gap: 15 }]}>
+                        <View>
+                            <Text style={styles.title}>Staff Hub</Text>
+                            <TouchableOpacity 
+                                style={{ marginTop: 8 }} 
+                                onPress={() => setShowInactive(!showInactive)}>
+                                <Text style={{ color: '#38BDF8', fontWeight: '800', fontSize: 13 }}>
+                                    {showInactive ? '↩ HIDE ARCHIVED' : '📋 VIEW ARCHIVED STAFF'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                        <TouchableOpacity style={[styles.addBtn, !isDesktop && { width: '100%', alignItems: 'center' }]} onPress={() => setModalVisible(true)}>
                             <Text style={styles.addBtnText}>+ New Staff</Text>
                         </TouchableOpacity>
                     </View>
 
-                    {staff.length === 0 ? (
+                    {staff.filter(m => showInactive ? true : m.isActive !== false).length === 0 ? (
                         <View style={styles.empty}>
-                            <Text style={styles.emptyText}>No staff members found.</Text>
+                            <Text style={styles.emptyText}>{showInactive ? 'No archived staff found.' : 'No active staff found.'}</Text>
                         </View>
                     ) : (
-                        staff.map(member => (
-                            <View key={member.id} style={[styles.staffCard, member.isActive === false && { opacity: 0.5 }]}>
-                                <View style={styles.cardInfo}>
-                                    <Text style={styles.memberName}>{member.name}</Text>
+                        staff
+                            .filter(m => showInactive ? true : m.isActive !== false)
+                            .sort((a,b) => (a.isActive === false ? 1 : -1)) // Show inactive at bottom
+                            .map(member => (
+                            <View key={member.id} style={[styles.staffCard, member.isActive === false && { opacity: 0.5, borderStyle: 'dashed', borderColor: '#334155' }, !isDesktop && { flexDirection: 'column', alignItems: 'flex-start' }]}>
+                                <View style={[styles.cardInfo, !isDesktop && { marginBottom: 15 }]}>
+                                    <Text style={styles.memberName}>{member.name} {member.isActive === false ? '(Archived)' : ''}</Text>
                                     <Text style={styles.memberEmail}>{member.email}</Text>
                                     <View style={{ flexDirection: 'row', marginTop: 8, gap: 10 }}>
                                         <View style={[styles.roleBadge, member.role === 'CHEF' ? styles.chefBg : styles.waiterBg]}>
                                             <Text style={styles.roleText}>{member.role}</Text>
                                         </View>
                                         {member.isActive === false && (
-                                            <View style={[styles.roleBadge, { backgroundColor: '#EF4444' }]}>
+                                            <View style={[styles.roleBadge, { backgroundColor: '#334155' }]}>
                                                 <Text style={styles.roleText}>INACTIVE</Text>
                                             </View>
                                         )}
                                     </View>
                                 </View>
-                                <View style={styles.actionBlock}>
-                                    <TouchableOpacity style={styles.editBtn} onPress={() => openEditModal(member)}>
-                                        <Text style={styles.editBtnText}>Edit</Text>
+                                <View style={[styles.actionBlock, !isDesktop && { width: '100%', justifyContent: 'flex-start' }]}>
+                                    <TouchableOpacity style={[styles.editBtn, !isDesktop && { flex: 1, alignItems: 'center' }]} onPress={() => openEditModal(member)}>
+                                        <Text style={styles.editBtnText}>{member.isActive === false ? 'Reactivate' : 'Edit'}</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={styles.delBtn} onPress={() => handleDelete(member.id)}>
-                                        <Text style={styles.delBtnText}>Del</Text>
-                                    </TouchableOpacity>
+                                    {member.isActive !== false && (
+                                        <TouchableOpacity style={[styles.delBtn, !isDesktop && { flex: 1, alignItems: 'center' }]} onPress={() => handleDelete(member.id)}>
+                                            <Text style={styles.delBtnText}>Archive</Text>
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
                             </View>
                         ))

@@ -1,0 +1,86 @@
+# ================================================
+# Cafe QR Solutions - Docker Compose
+# ================================================
+# Ports used:
+#   - 4000  → Backend API
+#   - 3005  → Frontend Web
+#   - 3307  → MySQL (external access)
+#
+# Existing VPS ports to AVOID:
+#   - 3001  (cards-frontend)
+#   - 3002  (snizz-frontend)
+#   - 5000  (snizz-backend)
+#   - 6379  (snizz-redis)
+#   - 3306  (snizz-db MariaDB)
+# ================================================
+
+services:
+  # ----- MySQL Database -----
+  cafeqr-db:
+    image: mysql:8.0
+    container_name: cafeqr-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: cafeqr_secure_pass_2026
+      MYSQL_DATABASE: QrSolDb
+      MYSQL_USER: cafeqr_user
+      MYSQL_PASSWORD: cafeqr_secure_pass_2026
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"   # Override MYSQL_PORT on VPS if needed
+    volumes:
+      - cafeqr-db-data:/var/lib/mysql
+    networks:
+      - cafeqr-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pcafeqr_secure_pass_2026"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ----- Backend API -----
+  cafeqr-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cafeqr-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env.production
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"   # Override BACKEND_PORT on VPS if needed
+    volumes:
+      - ./backend/uploads:/app/uploads   # Persist uploaded files
+    depends_on:
+      cafeqr-db:
+        condition: service_healthy
+    networks:
+      - cafeqr-network
+
+  # ----- Frontend Web App -----
+  cafeqr-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Leave blank to use same-origin nginx proxying on the VPS.
+        API_URL: ${FRONTEND_API_URL:-}
+    container_name: cafeqr-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3005}:80"   # Override FRONTEND_PORT on VPS if needed
+    depends_on:
+      - cafeqr-backend
+    networks:
+      - cafeqr-network
+
+# ----- Volumes -----
+volumes:
+  cafeqr-db-data:
+    name: cafeqr-db-data
+
+# ----- Network (isolated from other apps) -----
+networks:
+  cafeqr-network:
+    name: cafeqr-network
+    driver: bridge

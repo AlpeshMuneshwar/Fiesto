@@ -3,6 +3,8 @@ import { prisma } from '../prisma';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import bcrypt from 'bcrypt';
 import { validate, staffSchema, profileUpdateSchema, categoryToggleSchema, staffUpdateSchema } from '../validators';
+import { sendOTPEmail } from '../utils/email';
+import { recordActivity } from '../utils/audit';
 
 const router = Router();
 
@@ -83,13 +85,16 @@ router.get('/stats', authenticate, requireRole(['ADMIN']), async (req: AuthReque
 router.get('/orders/all', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
-        const orders = await prisma.order.findMany({
+        const orders = await (prisma.order as any).findMany({
             where: { cafeId },
             include: {
                 session: {
                     include: { table: true }
                 },
                 waiter: {
+                    select: { name: true }
+                },
+                chef: {
                     select: { name: true }
                 }
             },
@@ -119,7 +124,8 @@ router.get('/staff', authenticate, requireRole(['ADMIN']), async (req: AuthReque
 // Admin: Add new staff member
 router.post('/staff', authenticate, requireRole(['ADMIN']), validate(staffSchema), async (req: AuthRequest, res: Response) => {
     try {
-        const { name, email, password, role } = req.body;
+        const { name, email: rawEmail, password, role } = req.body;
+        const email = rawEmail.toLowerCase().trim();
         const cafeId = req.user!.cafeId;
 
         // Check if email is already in use
@@ -130,11 +136,47 @@ router.post('/staff', authenticate, requireRole(['ADMIN']), validate(staffSchema
         }
 
         const hashedPassword = await bcrypt.hash(password, 12);
+
+        // Generate OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const otpExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
+
         const user = await prisma.user.create({
-            data: { name, email, password: hashedPassword, role, cafeId }
+            data: { 
+                name, 
+                email, 
+                password: hashedPassword, 
+                role, 
+                cafeId,
+                isEmailVerified: false,
+                otp,
+                otpExpires,
+                createdBy: req.user?.id,
+                updatedBy: req.user?.id
+            } as any
         });
 
-        res.status(201).json({ id: user.id, name: user.name, email: user.email, role: user.role });
+        // Audit Log for Staff Creation
+        recordActivity({
+            cafeId,
+            staffId: req.user?.id,
+            role: 'ADMIN',
+            actionType: 'SETTINGS_UPDATE',
+            message: `Added new staff: ${name} (${role})`,
+            metadata: { newStaffId: user.id, email }
+        });
+
+        // Send OTP email
+        await sendOTPEmail(email, otp, 'VERIFY_EMAIL');
+
+        res.status(201).json({ 
+            id: user.id, 
+            name: user.name, 
+            email: user.email, 
+            role: user.role,
+            isEmailVerified: false,
+            message: 'Staff created. A verification OTP has been sent to their email.'
+        });
     } catch (error) {
         console.error('[Staff Create Error]', error);
         res.status(500).json({ error: 'Failed to create staff' });
@@ -145,13 +187,23 @@ router.post('/staff', authenticate, requireRole(['ADMIN']), validate(staffSchema
 router.put('/staff/:id', authenticate, requireRole(['ADMIN']), validate(staffUpdateSchema), async (req: AuthRequest, res: Response) => {
     try {
         const id = req.params.id as string;
-        const { name, email, role, isActive, password } = req.body;
+        const { name, email: rawEmail, role, isActive, password } = req.body;
+        const email = rawEmail?.toLowerCase()?.trim();
         const cafeId = req.user!.cafeId;
 
         const existing = await prisma.user.findUnique({ where: { id } });
         if (!existing || existing.cafeId !== cafeId) {
             res.status(404).json({ error: 'Staff member not found' });
             return;
+        }
+
+        // Check if new email is already taken by ANOTHER user
+        if (email && email !== existing.email) {
+            const collision = await prisma.user.findUnique({ where: { email } });
+            if (collision) {
+                res.status(400).json({ error: 'New email is already in use by another staff member.' });
+                return;
+            }
         }
 
         // Build sanitized update data
@@ -166,7 +218,20 @@ router.put('/staff/:id', authenticate, requireRole(['ADMIN']), validate(staffUpd
 
         const user = await prisma.user.update({
             where: { id },
-            data: updateData
+            data: {
+                ...updateData,
+                updatedBy: req.user?.id
+            } as any
+        });
+
+        // Audit Log for Staff Update
+        recordActivity({
+            cafeId,
+            staffId: req.user?.id,
+            role: 'ADMIN',
+            actionType: 'SETTINGS_UPDATE',
+            message: `Updated staff member: ${user.name}`,
+            metadata: { targetStaffId: id, changes: Object.keys(updateData) }
         });
 
         res.json({ id: user.id, name: user.name, email: user.email, role: user.role, isActive: user.isActive });
@@ -209,7 +274,22 @@ router.put('/cafe-profile', authenticate, requireRole(['ADMIN']), validate(profi
 
         const cafe = await prisma.cafe.update({
             where: { id: cafeId },
-            data: { name, address, logoUrl }
+            data: { 
+                name, 
+                address, 
+                logoUrl,
+                updatedBy: req.user?.id
+            } as any
+        });
+
+        // Audit Log
+        recordActivity({
+            cafeId,
+            staffId: req.user?.id,
+            role: 'ADMIN',
+            actionType: 'SETTINGS_UPDATE',
+            message: `Updated Cafe Profile: ${name}`,
+            metadata: { name, address }
         });
 
         res.json(cafe);
@@ -230,9 +310,22 @@ router.put('/menu/category/:category/toggle', authenticate, requireRole(['ADMIN'
             return;
         }
 
-        await prisma.menuItem.updateMany({
+        await (prisma.menuItem as any).updateMany({
             where: { cafeId, category },
-            data: { isAvailable }
+            data: { 
+                isAvailable,
+                updatedBy: req.user?.id 
+            }
+        });
+
+        // Audit Log
+        recordActivity({
+            cafeId,
+            staffId: req.user?.id,
+            role: 'ADMIN',
+            actionType: 'MENU_UPDATE',
+            message: `${isAvailable ? 'Enabled' : 'Disabled'} category: ${category}`,
+            metadata: { category, isAvailable }
         });
 
         res.json({ message: `Successfully updated all items in ${category}` });
@@ -341,6 +434,53 @@ router.get('/report', authenticate, requireRole(['ADMIN']), async (req: AuthRequ
     } catch (error) {
         console.error('[Report Error]', error);
         res.status(500).json({ error: 'Failed to generate report' });
+    }
+});
+
+// Admin: Get Detailed Audit Log for a Specific Order
+router.get('/orders/:id/audit', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+    try {
+        const cafeId = req.user!.cafeId;
+        const { id } = req.params;
+
+        const order = await (prisma.order as any).findFirst({
+            where: { id: id as string, cafeId },
+            include: {
+                session: { include: { table: true } },
+                waiter: { select: { name: true } },
+                chef: { select: { name: true } }
+            }
+        });
+
+        if (!order) {
+            res.status(404).json({ error: 'Order not found' });
+            return;
+        }
+
+        // Fetch all ActivityLog entries related to this order via metadata search
+        const logs = await (prisma as any).activityLog.findMany({
+            where: {
+                cafeId,
+                metadata: { contains: id as string }
+            },
+            orderBy: { createdAt: 'asc' },
+            include: { staff: { select: { name: true } } }
+        });
+
+        res.json({
+            order,
+            timeline: (logs as any[]).map(log => ({
+                id: log.id,
+                action: log.actionType,
+                message: log.message,
+                staffName: log.staff?.name || log.role || 'System',
+                timestamp: log.createdAt,
+                metadata: log.metadata ? JSON.parse(log.metadata) : null
+            }))
+        });
+    } catch (error) {
+        console.error('[Order Audit Error]', error);
+        res.status(500).json({ error: 'Failed to fetch order audit lifecycle' });
     }
 });
 

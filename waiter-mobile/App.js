@@ -6,6 +6,8 @@ import { SocketProvider } from './src/context/SocketContext';
 import { ToastProvider } from './src/components/ToastProvider';
 import LoginScreen from './src/screens/LoginScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
+import TableManagementScreen from './src/screens/TableManagementScreen';
+import OrderAuditScreen from './src/screens/OrderAuditScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -19,13 +21,17 @@ const Navigation = () => {
             {!user ? (
                 <Stack.Screen name="Login" component={LoginScreen} />
             ) : (
-                <Stack.Screen name="Dashboard">
-                    {props => (
-                        <SocketProvider>
-                            <DashboardScreen {...props} />
-                        </SocketProvider>
-                    )}
-                </Stack.Screen>
+                <Stack.Group>
+                    <Stack.Screen name="Dashboard">
+                        {props => (
+                            <SocketProvider>
+                                <DashboardScreen {...props} />
+                            </SocketProvider>
+                        )}
+                    </Stack.Screen>
+                    <Stack.Screen name="TableManagement" component={TableManagementScreen} />
+                    <Stack.Screen name="OrderAudit" component={OrderAuditScreen} />
+                </Stack.Group>
             )}
         </Stack.Navigator>
     );

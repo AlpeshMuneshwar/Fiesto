@@ -2,7 +2,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getGlobalToast } from '../components/ToastProvider';
 
-export const API_BASE_URL = 'https://thalloid-liza-unscholastically.ngrok-free.dev'; // Adjust for local dev
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:4000';
 export const SOCKET_URL = API_BASE_URL;
 
 const client = axios.create({

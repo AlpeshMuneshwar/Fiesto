@@ -18,6 +18,9 @@ import AdminSettingsScreen from '../screens/AdminSettingsScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import AdminReportsScreen from '../screens/AdminReportsScreen';
+import ReservationSuccessScreen from '../screens/ReservationSuccessScreen';
+import CustomerProfileScreen from '../screens/CustomerProfileScreen';
+import RegisterScreen from '../screens/RegisterScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -43,6 +46,9 @@ export const linking = {
             AdminSettings: 'admin/settings',
             AdminReports: 'admin/reports',
             SuperAdminDashboard: 'super-admin',
+            ReservationSuccess: 'booking-success',
+            CustomerProfile: 'profile',
+            Register: 'register-user',
         },
     },
 };
@@ -62,11 +68,11 @@ export default function AppNavigator() {
             <Stack.Screen name="DiscoveryPortal" component={DiscoveryPortalScreen as any} options={{ title: 'Find a Cafe' }} />
             <Stack.Screen name="TableSelection" component={TableSelectionScreen as any} options={{ title: 'Reserve a Table' }} />
             <Stack.Screen name="CafeRegistration" component={CafeRegistrationScreen} options={{ title: 'Cafe Onboarding' }} />
-            <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Staff Login' }} />
+            <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'Login' }} />
             <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ title: 'Reset Password' }} />
             <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ title: 'Set New Password' }} />
             <Stack.Screen name="ScanTable" component={ScanTableScreen} options={{ title: 'Welcome' }} />
-            <Stack.Screen name="CustomerMenu" component={CustomerMenuScreen} options={{ title: 'Menu & Order' }} />
+            <Stack.Screen name="CustomerMenu" component={CustomerMenuScreen} options={{ headerShown: false }} />
             <Stack.Screen name="WaiterDashboard" component={WaiterDashboardScreen} options={{ title: 'Waiter Dashboard' }} />
             <Stack.Screen name="ChefDashboard" component={ChefDashboardScreen} options={{ title: 'Kitchen Display' }} />
             <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ title: 'Admin Hub', headerLeft: () => null }} />
@@ -76,6 +82,9 @@ export default function AppNavigator() {
             <Stack.Screen name="AdminSettings" component={AdminSettingsScreen} options={{ title: 'Cafe Settings' }} />
             <Stack.Screen name="AdminReports" component={AdminReportsScreen} options={{ title: 'Sales Reports' }} />
             <Stack.Screen name="SuperAdminDashboard" component={SuperAdminDashboardScreen} options={{ title: 'Platform Control' }} />
+            <Stack.Screen name="ReservationSuccess" component={ReservationSuccessScreen as any} options={{ headerShown: false }} />
+            <Stack.Screen name="CustomerProfile" component={CustomerProfileScreen as any} options={{ title: 'My Bookings', headerStyle: { backgroundColor: '#0F172A' }, headerTintColor: '#fff' }} />
+            <Stack.Screen name="Register" component={RegisterScreen as any} options={{ headerShown: false }} />
         </Stack.Navigator>
     );
 }

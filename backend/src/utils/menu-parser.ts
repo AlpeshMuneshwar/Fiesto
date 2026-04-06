@@ -5,6 +5,10 @@ export interface ExtractedMenuItem {
     price: number;
     category: string;
     desc?: string;
+    isAvailable?: boolean;
+    isActive?: boolean;
+    dietaryTag?: string | null;
+    sortOrder?: number;
 }
 
 /**
@@ -15,25 +19,35 @@ export function parseOCRText(text: string): ExtractedMenuItem[] {
     const lines = text.split('\n');
     const items: ExtractedMenuItem[] = [];
     
-    // Regex to find price at the end of a line (handles $, decimal, or just numbers)
-    // Matches: "Burger 10.99", "Pasta $15", "Pizza 12"
-    const priceRegex = /([0-9]+(?:[.,][0-9]{2})?)\s*$/;
+    // Improved Regex: Find anything that looks like a price (e.g. 10.00, $5, 120) 
+    // and try to separate it from the item name.
+    // This looks for a number at the end, optionally preceded by currency or space-separated.
+    const priceWithOptionalCurrency = /([₹$]?\s*\d+(?:[.,]\d{2})?)\s*$/;
 
     lines.forEach(line => {
-        const trimmed = line.trim();
+        let trimmed = line.trim();
         if (!trimmed || trimmed.length < 3) return;
 
-        const match = trimmed.match(priceRegex);
+        // Clean common OCR noise like leading/trailing dots, dashes, or pipes
+        trimmed = trimmed.replace(/^[|.\-\s*]+/, '').replace(/[|.\-\s*]+$/, '');
+
+        const match = trimmed.match(priceWithOptionalCurrency);
         if (match) {
-            const priceStr = match[1].replace(',', '.');
-            const price = parseFloat(priceStr);
-            const name = trimmed.replace(match[0], '').trim().replace(/[._-]{2,}/g, ''); // Remove trailing price and dots/dashes
+            const priceFullMatch = match[1];
+            // Extract only numeric part for parsing
+            const priceNumeric = priceFullMatch.replace(/[₹$\s,]/g, (match) => match === ',' ? '.' : '');
+            const price = parseFloat(priceNumeric);
             
-            if (name && !isNaN(price)) {
+            // Item name is everything before the price
+            let name = trimmed.substring(0, trimmed.length - priceFullMatch.length).trim();
+            // Clean up name: remove trailing dots, dashes, and extra spaces
+            name = name.replace(/[.\-_:]{2,}/g, ' ').replace(/\s{2,}/g, ' ').trim();
+            
+            if (name && name.length > 2 && !isNaN(price)) {
                 items.push({
                     name,
                     price,
-                    category: 'Uncategorized', // Default category for OCR
+                    category: 'Uncategorized',
                 });
             }
         }
@@ -44,7 +58,7 @@ export function parseOCRText(text: string): ExtractedMenuItem[] {
 
 /**
  * Parses CSV buffer into a list of menu items.
- * Expected columns: name, price, category, description
+ * Expected columns: category, name, price, desc, dietaryTag, isAvailable, isActive, sortOrder
  */
 export function parseCSVMenu(buffer: Buffer): ExtractedMenuItem[] {
     const records = parse(buffer, {
@@ -53,10 +67,22 @@ export function parseCSVMenu(buffer: Buffer): ExtractedMenuItem[] {
         trim: true,
     });
 
+    const parseBool = (val: any, defaultVal: boolean) => {
+        if (!val) return defaultVal;
+        const s = String(val).toLowerCase().trim();
+        if (s === 'yes' || s === 'true' || s === '1' || s === 'y') return true;
+        if (s === 'no' || s === 'false' || s === '0' || s === 'n') return false;
+        return defaultVal;
+    };
+
     return records.map((r: any) => ({
         name: r.name || r.item || 'Unknown Item',
         price: parseFloat(r.price) || 0,
         category: r.category || 'General',
         desc: r.description || r.desc || '',
+        isAvailable: parseBool(r.isAvailable, true),
+        isActive: parseBool(r.isActive, true),
+        dietaryTag: r.dietaryTag ? r.dietaryTag.toUpperCase() : null,
+        sortOrder: parseInt(r.sortOrder) || 0,
     }));
 }

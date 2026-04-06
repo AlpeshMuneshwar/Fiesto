@@ -4,6 +4,7 @@ import { io } from '../socket';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import { validate, orderPlaceSchema, orderStatusSchema, orderApprovalSchema } from '../validators';
 import { notifyStaffByRole } from '../push';
+import { recordActivity } from '../utils/audit';
 
 const router = Router();
 
@@ -24,18 +25,40 @@ router.post('/place', validate(orderPlaceSchema), async (req: Request, res: Resp
             autoAcceptOrders: false,
         } as any;
 
-        // Server-side validation: recalculate total from items
-        const calculatedSubtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
+        // Server-side validation: fetch true prices from DB to prevent spoofing
+        const itemIds = items.map((i: any) => i.id);
+        const dbItems = await prisma.menuItem.findMany({
+            where: { id: { in: itemIds }, cafeId: session.cafeId }
+        });
+
+        const dbItemsMap = new Map(dbItems.map(i => [i.id, i]));
+        
+        let calculatedSubtotal = 0;
+        const secureItems = items.map((item: any) => {
+            const dbItem = dbItemsMap.get(item.id);
+            if (!dbItem) throw new Error(`Menu item ${item.name} not found or unavailable.`);
+            
+            const truePrice = dbItem.price;
+            calculatedSubtotal += truePrice * item.quantity;
+            
+            return { ...item, price: truePrice }; // Secure override
+        });
         
         let taxAmount = 0;
         let serviceCharge = 0;
         let calculatedTotal = calculatedSubtotal;
 
         if (settings.taxEnabled) {
-            taxAmount = (calculatedSubtotal * settings.taxRate) / 100;
+            if (settings.taxInclusive) {
+                // Formula for internal tax: Total - (Total / (1 + Rate))
+                taxAmount = calculatedSubtotal - (calculatedSubtotal / (1 + (settings.taxRate || 0) / 100));
+            } else {
+                taxAmount = (calculatedSubtotal * (settings.taxRate || 0)) / 100;
+            }
         }
+        
         if (settings.serviceChargeEnabled) {
-            serviceCharge = (calculatedSubtotal * settings.serviceChargeRate) / 100;
+            serviceCharge = (calculatedSubtotal * (settings.serviceChargeRate || 0)) / 100;
         }
 
         if (settings.taxInclusive) {
@@ -44,14 +67,23 @@ router.post('/place', validate(orderPlaceSchema), async (req: Request, res: Resp
             calculatedTotal = calculatedSubtotal + taxAmount + serviceCharge;
         }
 
-        const tolerance = 0.05; // Mismatch tolerance
+        const tolerance = 0.5; // Slightly higher tolerance for floating point precision
         if (Math.abs(calculatedTotal - totalAmount) > tolerance) {
-            res.status(400).json({ error: 'Total amount mismatch. Please refresh and try again.' });
+            res.status(400).json({ 
+                error: 'Total amount mismatch.', 
+                details: `Expected ${calculatedTotal.toFixed(2)}, got ${totalAmount.toFixed(2)}. Please refresh and try again.` 
+            });
             return;
         }
 
-        let initialStatus = isLocationVerified ? 'RECEIVED' : 'PENDING_APPROVAL';
-        if (settings.autoAcceptOrders) {
+        // Status Logic: 
+        // 1. If autoAcceptOrders is on, it's RECEIVED immediately.
+        // 2. Otherwise, if location is verified OR verification is NOT required, it's RECEIVED.
+        // 3. Else, it needs approval (PENDING_APPROVAL).
+        let initialStatus = 'PENDING_APPROVAL';
+        const locationAgnostic = isLocationVerified || !settings.locationVerification;
+        
+        if (settings.autoAcceptOrders || locationAgnostic) {
             initialStatus = 'RECEIVED';
         }
 
@@ -59,7 +91,7 @@ router.post('/place', validate(orderPlaceSchema), async (req: Request, res: Resp
             data: {
                 cafeId: session.cafeId,
                 sessionId,
-                items: JSON.stringify(items),
+                items: JSON.stringify(secureItems),
                 subtotal: calculatedSubtotal,
                 taxAmount,
                 serviceCharge,
@@ -67,16 +99,43 @@ router.post('/place', validate(orderPlaceSchema), async (req: Request, res: Resp
                 isLocationVerified,
                 status: initialStatus,
                 specialInstructions: specialInstructions || null,
-            }
+                createdBy: 'CUSTOMER', 
+                updatedBy: 'CUSTOMER'
+            } as any
+        });
+
+        // Audit Log for Order Placement
+        recordActivity({
+            cafeId: session.cafeId,
+            actionType: 'ORDER_PLACED',
+            message: `New order placed for ${session.table ? `Table ${session.table.number}` : 'Takeaway'}`,
+            metadata: { orderId: order.id, tableNumber: session.table?.number, amount: calculatedTotal }
+        });
+
+        // Re-fetch with includes so all socket listeners get full table/session data
+        const fullOrder = await prisma.order.findUnique({
+            where: { id: order.id },
+            include: { session: { include: { table: true } } }
         });
 
         if (initialStatus === 'PENDING_APPROVAL') {
-            io.to('WAITER_' + session.cafeId).emit('call_waiter', { message: `New order pending approval for Table ${session.table.number}` });
-            notifyStaffByRole(session.cafeId, 'WAITER', '🔔 New Order', `Table ${session.table.number} placed an order that needs approval`);
+            // Emit full order to WAITER room so their approval panel picks it up
+            io.to('WAITER_' + session.cafeId).emit('new_order', fullOrder);
+            io.to('WAITER_' + session.cafeId).emit('call_waiter', { 
+                message: `New order pending approval for ${session.table ? `Table ${session.table.number}` : 'Takeaway'}`,
+                tableNumber: session.table?.number,
+                type: 'ORDER_APPROVAL',
+            });
+            notifyStaffByRole(session.cafeId, 'WAITER', '🔔 New Order', `${session.table ? `Table ${session.table.number}` : 'Takeaway'} placed an order that needs approval`);
+            // Emit to chef too so they see the greyed-out pending order and hear the ding!
+            io.to('CHEF_' + session.cafeId).emit('new_order', fullOrder);
         } else if (initialStatus === 'RECEIVED') {
-            io.to('CHEF_' + session.cafeId).emit('new_order', order);
-            notifyStaffByRole(session.cafeId, 'CHEF', '🍳 New Order', `New order from Table ${session.table.number}`);
+            io.to('CHEF_' + session.cafeId).emit('new_order', fullOrder);
+            notifyStaffByRole(session.cafeId, 'CHEF', '🍳 New Order', `New order from ${session.table ? `Table ${session.table.number}` : 'Takeaway'}`);
         }
+
+        // Broadcast to the entire customer table to sync their screens
+        io.to(sessionId).emit('new_order', order);
 
         res.status(201).json({
             message: 'Order placed successfully',
@@ -122,19 +181,41 @@ router.post('/:id/approve', authenticate, requireRole(['WAITER', 'ADMIN']), vali
             return;
         }
 
-        const order = await prisma.order.update({
-            where: { id },
+        const updateResult = await (prisma.order as any).updateMany({
+            where: { id, status: 'PENDING_APPROVAL' },
             data: {
                 status: approve ? 'RECEIVED' : 'REJECTED',
-                waiterId
+                waiterId,
+                updatedBy: waiterId
             }
         });
+        
+        if (updateResult.count === 0) {
+            res.status(400).json({ error: 'Order has already been processed by another waiter.' });
+            return;
+        }
+
+        const order = await prisma.order.findUnique({ where: { id } });
+        if (!order) return;
 
         io.to(existingOrder.sessionId).emit('order_status_update', { orderId: order.id, status: order.status });
+        io.to('WAITER_' + existingOrder.cafeId).emit('order_status_update', { orderId: order.id, status: order.status });
+        
         if (approve) {
-            io.to('CHEF_' + existingOrder.cafeId).emit('new_order', order);
+            // Chef already has this order in PENDING_APPROVAL state. Just update it.
+            io.to('CHEF_' + existingOrder.cafeId).emit('order_status_update', { orderId: order.id, status: order.status });
             notifyStaffByRole(existingOrder.cafeId, 'CHEF', '🍳 Order Approved', 'A new order has been approved and is ready for preparation');
         }
+
+        // Audit Log for Approval/Rejection
+        recordActivity({
+            cafeId: existingOrder.cafeId,
+            staffId: waiterId,
+            role: 'WAITER',
+            actionType: approve ? 'ORDER_APPROVED' : 'ORDER_REJECTED',
+            message: `Waiter ${approve ? 'approved' : 'rejected'} Order #${id.split('-')[0].toUpperCase()}`,
+            metadata: { orderId: id }
+        });
 
         res.json({ message: `Order ${approve ? 'approved' : 'rejected'}`, order });
     } catch (error) {
@@ -156,12 +237,38 @@ router.post('/:id/status', authenticate, requireRole(['CHEF', 'ADMIN']), validat
             return;
         }
 
-        const order = await prisma.order.update({
+        const updateData: any = { status, updatedBy: req.user?.id };
+        
+        // Logical Enforcement: Assign Order to specific chef if they start it
+        if (status === 'PREPARING') {
+            if ((existingOrder as any).chefId && (existingOrder as any).chefId !== req.user?.id) {
+                res.status(409).json({ error: 'Order is already being prepared by another chef.' });
+                return;
+            }
+            updateData.chefId = req.user?.id;
+        }
+
+        const order = await (prisma.order as any).update({
             where: { id, cafeId },
-            data: { status }
+            data: updateData,
+            include: { chef: { select: { name: true } } }
         });
 
-        io.to(existingOrder.sessionId).emit('order_status_update', { orderId: order.id, status: order.status });
+        // Audit Log for Status Update
+        recordActivity({
+            cafeId,
+            staffId: req.user?.id,
+            role: 'CHEF',
+            actionType: status === 'PREPARING' ? 'ORDER_PREPARING' : (status === 'READY' ? 'ORDER_READY' : 'ORDER_PLACED'),
+            message: `Chef ${req.user?.name || 'Staff'} marked Order #${id.split('-')[0].toUpperCase()} as ${status}`,
+            metadata: { orderId: id, status, chefId: req.user?.id }
+        });
+
+        io.to(existingOrder.sessionId).emit('order_status_update', { 
+            orderId: order.id, 
+            status: order.status,
+            chefName: (order as any).chef?.name
+        });
 
         res.json({ message: 'Order status updated', order });
     } catch (error) {
@@ -175,14 +282,68 @@ router.post('/:id/status', authenticate, requireRole(['CHEF', 'ADMIN']), validat
 router.get('/active-chef', authenticate, requireRole(['CHEF', 'ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
-        const orders = await prisma.order.findMany({
-            where: { cafeId, status: { in: ['RECEIVED', 'PREPARING', 'READY'] } },
-            include: { session: { include: { table: true } } },
+        const twoHoursAgo = new Date(Date.now() - 120 * 60 * 1000);
+        const orders = await (prisma.order as any).findMany({
+            where: { 
+                cafeId, 
+                OR: [
+                    { status: { in: ['PENDING_APPROVAL', 'RECEIVED', 'PREPARING', 'READY', 'AWAITING_PICKUP'] } },
+                    { 
+                        status: 'DELIVERED',
+                        updatedAt: { gte: twoHoursAgo }
+                    }
+                ]
+            },
+            include: { 
+                session: { include: { table: true } },
+                chef: { select: { name: true } }
+            },
             orderBy: { createdAt: 'asc' }
+        });
+
+        // Group orders by type for better display
+        const groupedOrders = orders.reduce((acc: any, order: any) => {
+            const type = order.orderType || 'DINE_IN';
+            if (!acc[type]) acc[type] = [];
+            acc[type].push(order);
+            return acc;
+        }, {});
+
+        res.json({
+            orders,
+            groupedByType: groupedOrders,
+            summary: {
+                total: orders.length,
+                dineIn: groupedOrders.DINE_IN?.length || 0,
+                takeaway: groupedOrders.TAKEAWAY?.length || 0,
+                preOrder: groupedOrders.PRE_ORDER?.length || 0
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch active chef orders' });
+    }
+});
+
+// Get today's history for current Chef
+router.get('/chef/history', authenticate, requireRole(['CHEF']), async (req: AuthRequest, res: Response) => {
+    try {
+        const cafeId = req.user!.cafeId;
+        const chefId = req.user!.id;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const orders = await (prisma.order as any).findMany({
+            where: { 
+                cafeId, 
+                chefId: chefId as string,
+                createdAt: { gte: today }
+            },
+            include: { session: { include: { table: true } } },
+            orderBy: { createdAt: 'desc' }
         });
         res.json(orders);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch active chef orders' });
+        res.status(500).json({ error: 'Failed to fetch chef history' });
     }
 });
 

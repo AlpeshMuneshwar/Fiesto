@@ -55,12 +55,11 @@ export default function ScanTableScreen({ navigation }: any) {
         getPermissions();
     }, []);
 
-    const navigateToMenu = async (cafeId: string, tableNum: string) => {
+    const navigateToMenu = async (cafeId: string, tableNum: string, qrToken?: string) => {
         let isLocVerified = false;
         try {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status === 'granted') {
-                // Ensure the device can actually return a GPS coordinate
                 await Location.getCurrentPositionAsync({});
                 isLocVerified = true;
             }
@@ -68,28 +67,49 @@ export default function ScanTableScreen({ navigation }: any) {
             console.log("Location verification failed", e);
         }
         await AsyncStorage.setItem('isLocationVerified', JSON.stringify(isLocVerified));
-        navigation.replace('CustomerMenu', { cafeId, tableNumber: tableNum, isLocationVerified: isLocVerified });
+        navigation.replace('CustomerMenu', { 
+            cafeId, 
+            tableNumber: tableNum, 
+            qrToken, 
+            isLocationVerified: isLocVerified 
+        });
     };
 
-    const handleBarCodeScanned = ({ data }: any) => {
+    const handleBarCodeScanned = ({ data }: { data: string }) => {
         setScanned(true);
 
-        const newMatch = data.match(/cafe\/([^\/]+)\/table\/(\d+)/);
-        const oldMatch = data.match(/table=(\d+)/);
+        try {
+            // Use modern URL parsing for industry-level robustness
+            const url = new URL(data);
+            const pathParts = url.pathname.split('/');
+            
+            const cafeIdx = pathParts.indexOf('cafe');
+            const tableIdx = pathParts.indexOf('table');
 
-        if (newMatch) {
-            navigateToMenu(newMatch[1], newMatch[2]);
-        } else if (oldMatch) {
-            navigateToMenu('main-cafe', oldMatch[1]);
-        } else {
-            Alert.alert("Invalid QR", "This doesn't seem to be a valid cafe QR code.");
+            // Strictly validate path structure: /cafe/[slug]/table/[number]
+            if (cafeIdx !== -1 && tableIdx !== -1 && pathParts.length > tableIdx + 1) {
+                const cafeSlug = pathParts[cafeIdx + 1];
+                const tableNum = pathParts[tableIdx + 1];
+                const qrToken = url.searchParams.get('token');
+
+                if (!qrToken) {
+                    Alert.alert(
+                        "Insecure QR Code", 
+                        "This table QR code is outdated and lacks the required security token. Please ask the cafe staff for a new QR code."
+                    );
+                    setScanned(false);
+                    return;
+                }
+
+                navigateToMenu(cafeSlug, tableNum, qrToken);
+            } else {
+                Alert.alert("Invalid QR", "This QR code doesn't belong to a recognized table.");
+                setScanned(false);
+            }
+        } catch (e: any) {
+            Alert.alert("Invalid QR Format", "Please scan a valid Cafe QR code.");
             setScanned(false);
         }
-    };
-
-    const joinSessionManual = () => {
-        if (!tableNumber) return;
-        navigateToMenu('main-cafe', tableNumber);
     };
 
     if (hasPermission === null) return <Text style={{ padding: 20 }}>Requesting camera permission...</Text>;
@@ -98,6 +118,7 @@ export default function ScanTableScreen({ navigation }: any) {
     return (
         <View style={styles.container}>
             <Text style={styles.title}>Scan Table QR Code</Text>
+            <Text style={styles.subtitle}>Secure table access requires scanning.</Text>
 
             <View style={styles.cameraContainer}>
                 <CameraView
@@ -108,21 +129,6 @@ export default function ScanTableScreen({ navigation }: any) {
 
             {scanned && <Button title="Tap to Scan Again" onPress={() => setScanned(false)} />}
 
-            <Text style={{ marginTop: 20 }}>Or enter manually:</Text>
-            <TextInput
-                style={styles.input}
-                placeholder="Table Number"
-                keyboardType="number-pad"
-                value={tableNumber}
-                onChangeText={setTableNumber}
-            />
-            <TouchableOpacity
-                style={styles.button}
-                onPress={joinSessionManual}
-            >
-                <Text style={{ color: 'white', fontWeight: 'bold' }}>Join Table</Text>
-            </TouchableOpacity>
-
             <TouchableOpacity onPress={() => navigation.navigate('Login')} style={{ marginTop: 40, padding: 10 }}>
                 <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: '600' }}>Staff Login</Text>
             </TouchableOpacity>
@@ -132,8 +138,7 @@ export default function ScanTableScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
     container: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FAFAFA' },
-    title: { fontSize: 22, fontWeight: '800', marginBottom: 20, color: '#2C3E50' },
-    cameraContainer: { width: 300, height: 300, overflow: 'hidden', borderRadius: 20, marginBottom: 20, borderWidth: 4, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
-    input: { borderWidth: 1, borderColor: '#ccc', padding: 12, marginTop: 10, width: '100%', borderRadius: 8, backgroundColor: 'white' },
-    button: { backgroundColor: '#28A745', padding: 15, borderRadius: 8, marginTop: 15, width: '100%', alignItems: 'center' }
+    title: { fontSize: 22, fontWeight: '800', marginBottom: 5, color: '#2C3E50' },
+    subtitle: { fontSize: 14, color: '#7F8C8D', marginBottom: 25 },
+    cameraContainer: { width: 300, height: 300, overflow: 'hidden', borderRadius: 20, marginBottom: 20, borderWidth: 4, borderColor: '#fff', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 }
 });
