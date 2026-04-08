@@ -6,7 +6,7 @@
 
 */
 -- AlterTable
-ALTER TABLE `table` ADD COLUMN `qrToken` VARCHAR(191) NULL;
+ALTER TABLE `Table` ADD COLUMN `qrToken` VARCHAR(191) NULL;
 
 -- CreateIndex
 CREATE UNIQUE INDEX `Table_qrToken_key` ON `Table`(`qrToken`);

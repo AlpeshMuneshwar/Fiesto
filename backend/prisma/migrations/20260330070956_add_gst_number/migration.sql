@@ -6,48 +6,48 @@
 
 */
 -- AlterTable
-ALTER TABLE `cafe` ADD COLUMN `createdBy` VARCHAR(191) NULL,
+ALTER TABLE `Cafe` ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `cafesettings` ADD COLUMN `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+ALTER TABLE `CafeSettings` ADD COLUMN `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `gstNumber` VARCHAR(191) NULL,
     ADD COLUMN `updatedAt` DATETIME(3) NOT NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `menuitem` ADD COLUMN `createdBy` VARCHAR(191) NULL,
+ALTER TABLE `MenuItem` ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `order` ADD COLUMN `chefId` VARCHAR(191) NULL,
+ALTER TABLE `Order` ADD COLUMN `chefId` VARCHAR(191) NULL,
     ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `payment` ADD COLUMN `createdBy` VARCHAR(191) NULL,
+ALTER TABLE `Payment` ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `session` ADD COLUMN `createdBy` VARCHAR(191) NULL,
+ALTER TABLE `Session` ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `staffcall` ADD COLUMN `createdBy` VARCHAR(191) NULL,
+ALTER TABLE `StaffCall` ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `table` ADD COLUMN `createdBy` VARCHAR(191) NULL,
+ALTER TABLE `Table` ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `desc` VARCHAR(191) NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `user` ADD COLUMN `createdBy` VARCHAR(191) NULL,
+ALTER TABLE `User` ADD COLUMN `createdBy` VARCHAR(191) NULL,
     ADD COLUMN `updatedBy` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `verificationtoken` ADD COLUMN `updatedAt` DATETIME(3) NOT NULL;
+ALTER TABLE `VerificationToken` ADD COLUMN `updatedAt` DATETIME(3) NOT NULL;
 
 -- CreateTable
 CREATE TABLE `ActivityLog` (
