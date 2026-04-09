@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
-import { ArrowLeft, Clock, User, CheckCircle, Package, Flame, Smartphone, Receipt, ShieldCheck, ShieldX } from 'lucide-react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { ArrowLeft, Clock, User, CheckCircle, Package, Flame, ShieldCheck, ShieldX } from 'lucide-react-native';
 import client from '../api/client';
 
 const getRelativeTime = (timestamp) => {
@@ -44,7 +46,7 @@ const AuditItem = ({ log, isLast }) => {
                 <View style={styles.logMeta}>
                     <User size={12} color="#94A3B8" />
                     <Text style={styles.logStaff}>By {log.staffName}</Text>
-                    <Text style={styles.logRelative}>• {getRelativeTime(log.timestamp)}</Text>
+                    <Text style={styles.logRelative}>- {getRelativeTime(log.timestamp)}</Text>
                 </View>
             </View>
         </View>
@@ -75,7 +77,8 @@ export default function OrderAuditScreen({ route, navigation }) {
 
     if (loading) {
         return (
-            <SafeAreaView style={styles.centered}>
+            <SafeAreaView style={styles.centered} edges={['top', 'bottom', 'left', 'right']}>
+                <StatusBar style="dark" />
                 <ActivityIndicator size="large" color="#0EA5E9" />
                 <Text style={styles.loadingText}>Retracing Order Lifecycle...</Text>
             </SafeAreaView>
@@ -83,7 +86,8 @@ export default function OrderAuditScreen({ route, navigation }) {
     }
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+            <StatusBar style="dark" />
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ArrowLeft color="#1E293B" size={24} />

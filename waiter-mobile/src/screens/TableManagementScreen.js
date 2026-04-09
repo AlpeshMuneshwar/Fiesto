@@ -5,13 +5,13 @@ import {
     StyleSheet, 
     FlatList, 
     TouchableOpacity, 
-    SafeAreaView, 
     ActivityIndicator, 
     Alert, 
     RefreshControl,
     Platform 
 } from 'react-native';
-import { useAuth } from '../context/AuthContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { 
     ChevronLeft, 
     Users, 
@@ -26,7 +26,6 @@ import client from '../api/client';
 import * as Haptics from 'expo-haptics';
 
 const TableManagementScreen = ({ navigation }) => {
-    const { user } = useAuth();
     const [tables, setTables] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -137,7 +136,8 @@ const TableManagementScreen = ({ navigation }) => {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+            <StatusBar style="dark" />
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
                     <ChevronLeft size={24} color="#1E293B" />

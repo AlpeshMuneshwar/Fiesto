@@ -1,19 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert, Switch } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import client from '../api/client';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 import { ChefHat, LogOut, Flame, CheckCircle, Smartphone, Lock, Wifi, WifiOff, RefreshCw, History, User } from 'lucide-react-native';
 
+const parseOrderItems = (rawItems) => {
+    try {
+        if (Array.isArray(rawItems)) {
+            return rawItems;
+        }
+
+        if (typeof rawItems === 'string') {
+            const parsed = JSON.parse(rawItems);
+            return Array.isArray(parsed) ? parsed : [];
+        }
+    } catch (error) {
+        console.error('Invalid chef order items payload', error);
+    }
+
+    return [];
+};
+
 const OrderItem = ({ item, onUpdateStatus, onCallWaiter, isPastOrder }) => {
-    const items = JSON.parse(item.items);
+    const items = parseOrderItems(item.items);
     const specialInstructions = item.specialInstructions;
+    const tableNumber = item.session?.table?.number ?? '?';
 
     return (
         <View style={styles.orderCard}>
             <View style={styles.orderHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                   <Text style={styles.tableLabel}>TABLE {item.session.table.number}</Text>
+                   <Text style={styles.tableLabel}>TABLE {tableNumber}</Text>
                    {item.isPreorder && (
                        <View style={styles.preorderBadge}>
                            <Text style={styles.preorderText}>PRE-ORDER</Text>
@@ -54,7 +74,7 @@ const OrderItem = ({ item, onUpdateStatus, onCallWaiter, isPastOrder }) => {
 
             {specialInstructions && (
                 <View style={styles.instructionsBox}>
-                    <Text style={styles.instructionsLabel}>📝 Special Instructions:</Text>
+                    <Text style={styles.instructionsLabel}>Special Instructions</Text>
                     <Text style={styles.instructionsText}>{specialInstructions}</Text>
                 </View>
             )}
@@ -98,8 +118,8 @@ export default function DashboardScreen() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [activeTab, setActiveTab] = useState('ACTIVE'); // ACTIVE, PAST
-    const { logout, user } = useAuth();
-    const { socket, isConnected, callWaiterViaAPI, manualReconnect } = useSocket();
+    const { logout } = useAuth();
+    const { socket, isConnected, manualReconnect } = useSocket();
 
     const fetchOrders = async () => {
         setLoading(true);
@@ -158,7 +178,7 @@ export default function DashboardScreen() {
 
     const callWaiter = async (orderId) => {
         try {
-            const res = await client.post(`/order/${orderId}/call-waiter`);
+            await client.post(`/order/${orderId}/call-waiter`);
             setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'AWAITING_PICKUP' } : o));
             Alert.alert('Success', 'Waiter has been called!');
         } catch (e) {
@@ -177,7 +197,8 @@ export default function DashboardScreen() {
     const filteredOrders = activeTab === 'ACTIVE' ? activeOrders : pastOrders;
 
     return (
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+            <StatusBar style="dark" />
             <View style={styles.header}>
                 <View style={styles.headerTitleRow}>
                     <ChefHat color="#F97316" size={30} />

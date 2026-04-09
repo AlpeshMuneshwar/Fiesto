@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, SafeAreaView, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../context/AuthContext';
 import { LogIn, ArrowRight } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -92,7 +94,7 @@ export default function LoginScreen() {
                 <Text style={styles.inputLabel}>OTP CODE</Text>
                 <TextInput
                     style={styles.input}
-                    placeholder="• • • • • •"
+                    placeholder="Enter 6-digit OTP"
                     placeholderTextColor="#94A3B8"
                     value={otp}
                     onChangeText={setOtp}
@@ -157,7 +159,7 @@ export default function LoginScreen() {
                     </View>
                     <TextInput
                         style={styles.input}
-                        placeholder="••••••••"
+                        placeholder="Enter password"
                         placeholderTextColor="#94A3B8"
                         value={password}
                         onChangeText={setPassword}
@@ -174,7 +176,7 @@ export default function LoginScreen() {
                     </View>
                     <TextInput
                         style={styles.input}
-                        placeholder="• • • • • •"
+                        placeholder="Enter 6-digit OTP"
                         placeholderTextColor="#94A3B8"
                         value={otp}
                         onChangeText={setOtp}
@@ -213,7 +215,8 @@ export default function LoginScreen() {
             colors={['#0F172A', '#1E293B', '#334155']}
             style={styles.container}
         >
-            <SafeAreaView style={{ flex: 1 }}>
+            <StatusBar style="light" />
+            <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom', 'left', 'right']}>
                 <KeyboardAvoidingView 
                     style={{ flex: 1 }} 
                     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

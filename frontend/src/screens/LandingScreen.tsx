@@ -11,7 +11,7 @@ const productBenefitsData = [
     {
         icon: 'qrcode-scan',
         title: 'QR Code Ordering',
-        desc: 'Customers scan a table QR code and browse your digital menu instantly — no app download needed.',
+        desc: 'Customers scan a table QR code and browse your digital menu instantly - no app download needed.',
         color: '#FF6B35',
         gradient: ['#FF6B35', '#FF8F5E'] as const,
     },
@@ -32,7 +32,7 @@ const productBenefitsData = [
     {
         icon: 'bell-outline',
         title: 'Waiter Call System',
-        desc: 'Customers can call a waiter from their phone with one tap — perfect during rush hours.',
+        desc: 'Customers can call a waiter from their phone with one tap - perfect during rush hours.',
         color: '#EC4899',
         gradient: ['#EC4899', '#F472B6'] as const,
     },
@@ -46,7 +46,7 @@ const productBenefitsData = [
     {
         icon: 'timer-sand',
         title: 'Faster Table Turnover',
-        desc: 'Reduce wait times by 60%. Orders go directly to the kitchen — no middleman delays.',
+        desc: 'Reduce wait times by 60%. Orders go directly to the kitchen - no middleman delays.',
         color: '#F59E0B',
         gradient: ['#F59E0B', '#FBBF24'] as const,
     },
@@ -61,13 +61,13 @@ const featureData = [
     },
     {
         title: 'Pre-Order Magic',
-        desc: 'Let customers reserve their favorite dishes ahead. Perfect for busy lunch rushes. — Coming soon',
+        desc: 'Let customers reserve their favorite dishes ahead. Perfect for busy lunch rushes. Coming soon.',
         icon: 'calendar-star',
         color: '#8B5CF6',
     },
     {
         title: 'Takeaway Made Easy',
-        desc: 'Pickup orders with smart notifications. No more forgotten orders or long waits. — Coming soon',
+        desc: 'Pickup orders with smart notifications. No more forgotten orders or long waits. Coming soon.',
         icon: 'shopping-outline',
         color: '#06B6D4',
     },
@@ -102,7 +102,7 @@ const howItWorksData = [
         number: '4',
         icon: 'check-circle-outline',
         title: 'Serve & Enjoy',
-        desc: 'Waiter gets notified when food is ready. Customer enjoys — no waiting, no confusion.',
+        desc: 'Waiter gets notified when food is ready. Customer enjoys - no waiting, no confusion.',
     },
 ];
 
@@ -378,7 +378,7 @@ export default function LandingScreen({ navigation }: any) {
                         <View style={[styles.heroTextSection, isWide && styles.heroTextSectionWide]}>
                             <View style={styles.taglineBox}>
                                 <View style={styles.taglinePill}>
-                                    <Text style={styles.tagline}>✨ Smart QR Ordering for Modern Cafes</Text>
+                                    <Text style={styles.tagline}>Smart QR Ordering for Modern Cafes</Text>
                                 </View>
                             </View>
 
@@ -414,7 +414,7 @@ export default function LandingScreen({ navigation }: any) {
                                         end={{ x: 1, y: 0 }}
                                         style={styles.ctaGradient}
                                     >
-                                        <Text style={styles.ctaButtonText}>Start 1-Month Free Trial →</Text>
+                                        <Text style={styles.ctaButtonText}>Start 1-Month Free Trial</Text>
                                     </LinearGradient>
                                 </TouchableOpacity>
                             </View>
@@ -496,7 +496,7 @@ export default function LandingScreen({ navigation }: any) {
                         </View>
                         <Text style={styles.howItWorksTitle}>Simple as 1-2-3-4</Text>
                         <Text style={styles.howItWorksSubtitle}>
-                            Get your café running on Fiesto in minutes. Here's the customer journey.
+                            Get your cafe running on Fiesto in minutes. Here's the customer journey.
                         </Text>
                     </View>
 
@@ -516,7 +516,7 @@ export default function LandingScreen({ navigation }: any) {
                                 {/* Connector arrow for desktop */}
                                 {isWide && index < 3 && (
                                     <View style={styles.connectorArrow}>
-                                        <Text style={styles.connectorArrowText}>→</Text>
+                                        <MaterialCommunityIcons name="arrow-right" size={22} color="rgba(255, 107, 53, 0.28)" />
                                     </View>
                                 )}
                             </View>
@@ -587,7 +587,7 @@ export default function LandingScreen({ navigation }: any) {
 
                     <View style={[styles.appsDownloadGrid, isWide && styles.appsDownloadGridWide]}>
                         {fiestoAndroidApps.map((app) => (
-                            <View key={app.name} style={styles.appCard}>
+                            <View key={app.name} style={[styles.appCard, isWide && styles.appCardWide]}>
                                 <View style={styles.appCardTopRow}>
                                     <LinearGradient colors={app.gradient} style={styles.appIconContainer}>
                                         <MaterialCommunityIcons name={app.icon} size={30} color="#FFFFFF" />
@@ -630,21 +630,6 @@ export default function LandingScreen({ navigation }: any) {
                         ))}
                     </View>
 
-                    <View style={styles.legacyAppsGrid}>
-                        {[
-                            { icon: 'finance', name: 'Owner Dashboard', gradient: ['#FF6B35', '#FF8F5E'] as const, features: '• Real-time sales tracking\n• Revenue & analytics\n• Staff management\n• Inventory control' },
-                            { icon: 'chef-hat', name: 'Chef Mobile App', gradient: ['#8B5CF6', '#A78BFA'] as const, features: '• Live order queue\n• Priority notifications\n• Order timing\n• Quality control' },
-                            { icon: 'silverware-fork-knife', name: 'Waiter Mobile App', gradient: ['#06B6D4', '#22D3EE'] as const, features: '• Incoming customer calls\n• Order status alerts\n• Bill management\n• Customer requests' },
-                        ].map((app) => (
-                            <View key={app.name} style={styles.appCard}>
-                                <LinearGradient colors={app.gradient} style={styles.appIconContainer}>
-                                    <MaterialCommunityIcons name={app.icon} size={30} color="#FFFFFF" />
-                                </LinearGradient>
-                                <Text style={styles.appName}>{app.name}</Text>
-                                <Text style={styles.appFeatures}>{app.features}</Text>
-                            </View>
-                        ))}
-                    </View>
                 </ResponsiveContainer>
             </View>
 
@@ -654,7 +639,7 @@ export default function LandingScreen({ navigation }: any) {
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>Everything Your Cafe Needs to Thrive</Text>
                         <Text style={styles.sectionSubtitle}>
-                            Built by for cafe owners, No more generic restaurant software.
+                            Built for cafe owners who need something sharper than generic restaurant software.
                         </Text>
                     </View>
 
@@ -790,7 +775,7 @@ export default function LandingScreen({ navigation }: any) {
             {/* ===================== FOOTER ===================== */}
             <View style={styles.footer}>
                 <ResponsiveContainer maxWidth={1200}>
-                    <View style={styles.footerContent}>
+                    <View style={[styles.footerContent, isWide ? styles.footerContentWide : styles.footerContentMobile]}>
                         <View style={styles.footerBrand}>
                             <View style={styles.footerLogoContainer}>
                                 <LinearGradient
@@ -809,8 +794,8 @@ export default function LandingScreen({ navigation }: any) {
                             <Text style={styles.footerTagline}>Making cafes more profitable, one order at a time.</Text>
                         </View>
 
-                        <View style={styles.footerLinks}>
-                            <View style={styles.footerColumn}>
+                        <View style={[styles.footerLinks, !isWide && styles.footerLinksMobile]}>
+                            <View style={[styles.footerColumn, styles.footerColumnFirst]}>
                                 <Text style={styles.footerHeading}>Product</Text>
                                 <Text style={styles.footerLink}>Features</Text>
                                 <Text style={styles.footerLink}>Pricing</Text>
@@ -827,12 +812,21 @@ export default function LandingScreen({ navigation }: any) {
 
                     <View style={styles.footerDivider} />
 
-                    <View style={styles.footerBottom}>
-                        <Text style={styles.footerCopyright}>© 2026 Fiesto. All rights reserved.</Text>
-                        <View style={styles.footerSocial}>
-                            <Text style={styles.socialIcon}>f</Text>
-                            <Text style={styles.socialIcon}>𝕏</Text>
-                            <Text style={styles.socialIcon}>in</Text>
+                    <View style={[styles.footerBottom, !isWide && styles.footerBottomMobile]}>
+                        <Text style={styles.footerCopyright}>(c) 2026 Fiesto. All rights reserved.</Text>
+                        <View style={[styles.footerMetaRow, !isWide && styles.footerMetaRowMobile]}>
+                            <View style={styles.footerMetaPill}>
+                                <MaterialCommunityIcons name="monitor-dashboard" size={14} color="#FFFFFF" />
+                                <Text style={styles.footerMetaText}>Web dashboard</Text>
+                            </View>
+                            <View style={styles.footerMetaPill}>
+                                <MaterialCommunityIcons name="android" size={14} color="#FFFFFF" />
+                                <Text style={styles.footerMetaText}>Chef + Waiter APKs</Text>
+                            </View>
+                            <View style={styles.footerMetaPill}>
+                                <MaterialCommunityIcons name="cloud-check-outline" size={14} color="#FFFFFF" />
+                                <Text style={styles.footerMetaText}>VPS connected</Text>
+                            </View>
                         </View>
                     </View>
                 </ResponsiveContainer>
@@ -850,7 +844,7 @@ const styles = StyleSheet.create({
     heroSection: {
         position: 'relative',
         overflow: 'hidden',
-        height: screenHeight,
+        minHeight: screenHeight,
         paddingTop: 90,
         paddingBottom: 40,
         justifyContent: 'center',
@@ -1340,7 +1334,6 @@ const styles = StyleSheet.create({
         right: -16,
         zIndex: 5,
     },
-    connectorArrowText: { fontSize: 24, color: '#FF6B3540' },
 
     // ===========================
     // BENEFITS SECTION
@@ -1455,11 +1448,8 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         maxWidth: 760,
     },
-    appsGrid: { flexDirection: 'column' },
-    appsGridWide: { flexDirection: 'row', justifyContent: 'space-between' },
     appsDownloadGrid: { flexDirection: 'column' },
     appsDownloadGridWide: { flexDirection: 'row', justifyContent: 'space-between' },
-    legacyAppsGrid: { display: 'none' },
     appCard: {
         backgroundColor: '#FFFFFF',
         borderRadius: 24,
@@ -1474,6 +1464,9 @@ const styles = StyleSheet.create({
         shadowRadius: 18,
         shadowOffset: { width: 0, height: 10 },
         elevation: 5,
+    },
+    appCardWide: {
+        maxWidth: '48.7%',
     },
     appCardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
     appIconContainer: {
@@ -1541,7 +1534,6 @@ const styles = StyleSheet.create({
     },
     downloadSecondaryText: { color: '#0F172A', fontSize: 14, fontWeight: '700', letterSpacing: 0.2 },
     downloadSupportText: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '500' },
-    appFeatures: { fontSize: 13, color: '#64748B', lineHeight: 22, textAlign: 'center', fontWeight: '500' },
 
     // ===========================
     // FEATURES SECTION
@@ -1802,6 +1794,8 @@ const styles = StyleSheet.create({
     // ===========================
     footer: { backgroundColor: '#0C0A1D', paddingVertical: 40 },
     footerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+    footerContentWide: { flexDirection: 'row' },
+    footerContentMobile: { flexDirection: 'column' },
     footerBrand: { flex: 1 },
     footerLogoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
     footerLogoBadge: {
@@ -1817,12 +1811,31 @@ const styles = StyleSheet.create({
     footerLogoCaption: { color: '#94A3B8', fontSize: 11, fontWeight: '600', marginTop: 2, letterSpacing: 0.2 },
     footerTagline: { color: '#64748B', fontSize: 13, maxWidth: 300, fontWeight: '400', lineHeight: 20 },
     footerLinks: { flexDirection: 'row' },
+    footerLinksMobile: { marginTop: 20, width: '100%', justifyContent: 'space-between' },
     footerColumn: { marginLeft: 40 },
+    footerColumnFirst: { marginLeft: 0 },
     footerHeading: { color: '#FFFFFF', fontSize: 13, fontWeight: '700', marginBottom: 12, letterSpacing: 0.2 },
     footerLink: { color: '#64748B', fontSize: 13, marginBottom: 8, fontWeight: '400' },
     footerDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 20 },
     footerBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    footerBottomMobile: { flexDirection: 'column', alignItems: 'flex-start' },
     footerCopyright: { color: '#475569', fontSize: 12, fontWeight: '400' },
-    footerSocial: { flexDirection: 'row' },
-    socialIcon: { fontSize: 16, marginLeft: 14 },
+    footerMetaRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end' },
+    footerMetaRowMobile: { marginTop: 14, justifyContent: 'flex-start' },
+    footerMetaPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(255,255,255,0.08)',
+        borderRadius: 999,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        marginRight: 10,
+        marginBottom: 8,
+    },
+    footerMetaText: {
+        color: '#FFFFFF',
+        fontSize: 12,
+        fontWeight: '700',
+        marginLeft: 6,
+    },
 });

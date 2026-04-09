@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView, Platform, StatusBar, Alert, ScrollView, RefreshControl, Modal } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Platform, Alert, ScrollView, RefreshControl, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -8,6 +10,23 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import client from '../api/client';
+
+const parseOrderItems = (rawItems) => {
+    try {
+        if (Array.isArray(rawItems)) {
+            return rawItems;
+        }
+
+        if (typeof rawItems === 'string') {
+            const parsed = JSON.parse(rawItems);
+            return Array.isArray(parsed) ? parsed : [];
+        }
+    } catch (error) {
+        console.error('Invalid waiter order items payload', error);
+    }
+
+    return [];
+};
 
 const getRelativeTime = (timestamp) => {
     const min = Math.round((new Date() - new Date(timestamp)) / 60000);
@@ -44,7 +63,7 @@ const ConnectivityBar = ({ isConnected, onReconnect, onRefresh }) => (
 
 // --- Approval Card ---
 const ApprovalCard = ({ order, onApprove, onReject }) => {
-    const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
+    const items = parseOrderItems(order.items);
     const tableNum = order.session?.table?.number || '?';
 
     return (
@@ -119,12 +138,7 @@ const HistoryItem = ({ item, navigation }) => {
 
     const colors = getColors();
 
-    let parsedItems = [];
-    if (item.items) {
-        try {
-            parsedItems = typeof item.items === 'string' ? JSON.parse(item.items) : item.items;
-        } catch (e) {}
-    }
+    const parsedItems = parseOrderItems(item.items);
 
     return (
         <TouchableOpacity 
@@ -153,7 +167,7 @@ const HistoryItem = ({ item, navigation }) => {
                 {(!expanded && (item.message || item.orderNumber)) && (
                     <View style={styles.detailPreview}>
                         <Text style={styles.historyDetail} numberOfLines={1}>
-                            {isCall ? (item.message || 'Assistance provided') : `Order #${item.orderNumber} • ${parsedItems.length} items`}
+                            {isCall ? (item.message || 'Assistance provided') : `Order #${item.orderNumber} - ${parsedItems.length} items`}
                         </Text>
                     </View>
                 )}
@@ -337,8 +351,8 @@ export default function DashboardScreen(props) {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar barStyle="dark-content" />
+        <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+            <StatusBar style="dark" />
 
             {/* Header */}
             <View style={styles.header}>
@@ -406,7 +420,7 @@ export default function DashboardScreen(props) {
                 {pendingOrders.length > 0 && (
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
-                            <Text style={[styles.sectionTitle, { color: '#EA580C' }]}>⚡ Approvals Required</Text>
+                            <Text style={[styles.sectionTitle, { color: '#EA580C' }]}>Approvals Required</Text>
                             <Text style={styles.sectionSub}>Verify these orders before kitchen starts</Text>
                         </View>
                         {pendingOrders.map((order) => (
@@ -424,7 +438,7 @@ export default function DashboardScreen(props) {
                 {readyOrders.length > 0 && (
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
-                            <Text style={[styles.sectionTitle, { color: '#10B981' }]}>🍽️ Ready for Pickup</Text>
+                            <Text style={[styles.sectionTitle, { color: '#10B981' }]}>Ready for Pickup</Text>
                             <Text style={styles.sectionSub}>Pick these up from the kitchen</Text>
                         </View>
                         <FlatList
@@ -439,13 +453,13 @@ export default function DashboardScreen(props) {
                                         <Clock color="#059669" size={14} />
                                     </View>
                                     <Text style={styles.readyItems} numberOfLines={2}>
-                                        {JSON.parse(item.items).map(i => `${i.quantity}x ${i.name}`).join(', ')}
+                                        {parseOrderItems(item.items).map(i => `${i.quantity}x ${i.name}`).join(', ')}
                                     </Text>
                                     <TouchableOpacity
                                         style={styles.deliverBtn}
                                         onPress={() => markAsDelivered(item.id)}
                                     >
-                                        <Text style={styles.deliverBtnText}>Delivered ✓</Text>
+                                        <Text style={styles.deliverBtnText}>Mark Delivered</Text>
                                     </TouchableOpacity>
                                 </View>
                             )}
@@ -456,7 +470,7 @@ export default function DashboardScreen(props) {
                 {/* --- Call Queue --- */}
                 <View style={[styles.section, { paddingBottom: 40 }]}>
                     <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionTitle}>🔔 Call Queue</Text>
+                        <Text style={styles.sectionTitle}>Call Queue</Text>
                         <Text style={styles.sectionSub}>Prioritized by arrival time</Text>
                     </View>
 
@@ -481,7 +495,7 @@ export default function DashboardScreen(props) {
 
             {/* --- History Modal --- */}
             <Modal visible={isHistoryVisible} animationType="slide" presentationStyle="pageSheet">
-                <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
+                <SafeAreaView style={{ flex: 1, backgroundColor: '#F8FAFC' }} edges={['top', 'bottom', 'left', 'right']}>
                     <View style={styles.modalHeader}>
                         <Activity color="#0EA5E9" size={24} style={{ marginRight: 8 }} />
                         <Text style={styles.modalTitle}>My Activity Log</Text>
