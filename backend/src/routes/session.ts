@@ -6,6 +6,7 @@ import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import { validate, sessionStartSchema, sessionJoinSchema, forgotCodeSchema, tableSchema } from '../validators';
 import { asyncHandler } from '../middleware/error-handler';
 import { recordActivity } from '../utils/audit';
+import { buildCafeTableUrl } from '../config/runtime';
 
 const router = Router();
 
@@ -63,7 +64,7 @@ router.post('/tables', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), vali
 
     // Generate/Reuse QR Token for security
     const qrToken = crypto.randomUUID();
-    const qrCodeUrl = `https://cafeqr.com/cafe/${cafe.slug}/table/${number}?token=${qrToken}`;
+    const qrCodeUrl = buildCafeTableUrl(cafe.slug, number, qrToken);
 
     if (table) {
         table = await prisma.table.update({
@@ -121,7 +122,7 @@ router.post('/tables/:id/regenerate-qr', authenticate, requireRole(['ADMIN', 'SU
 
     // Generate fresh QR token - old one is now dead
     const qrToken = crypto.randomUUID();
-    const qrCodeUrl = `https://cafeqr.com/cafe/${table.cafe.slug}/table/${table.number}?token=${qrToken}`;
+    const qrCodeUrl = buildCafeTableUrl(table.cafe.slug, table.number, qrToken);
 
     const updatedTable = await prisma.table.update({
         where: { id: tableId },
@@ -332,7 +333,7 @@ router.post('/tables/:id/regenerate-qr', authenticate, requireRole(['ADMIN', 'SU
     }
 
     const newQrToken = crypto.randomUUID();
-    const newQrCodeUrl = `https://cafeqr.com/cafe/${table.cafe.slug}/table/${table.number}?token=${newQrToken}`;
+    const newQrCodeUrl = buildCafeTableUrl(table.cafe.slug, table.number, newQrToken);
 
     const updatedTable = await prisma.table.update({
         where: { id },

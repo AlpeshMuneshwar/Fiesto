@@ -1,20 +1,12 @@
 import { Server } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import jwt from 'jsonwebtoken';
+import { allowedOrigins } from './config/runtime';
 
 let io: Server;
 
 export const initSocket = (httpServer: HttpServer) => {
-    // Parse allowed CORS origins from environment — must match Express CORS
-    const allowedOrigins = process.env.CORS_ORIGINS
-        ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-        : [
-            'http://localhost:8081', 'http://127.0.0.1:8081',
-            'http://localhost:8082', 'http://127.0.0.1:8082',
-            'http://localhost:8083', 'http://127.0.0.1:8083',
-            'http://localhost:19006', 'http://localhost:3000'
-          ];
-
+    // Share the same origin allowlist as Express CORS.
     io = new Server(httpServer, {
         cors: {
             origin: (origin, callback) => {

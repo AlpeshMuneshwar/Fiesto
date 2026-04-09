@@ -2,7 +2,13 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getGlobalToast } from '../components/ToastProvider';
 
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:4000';
+const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
+const defaultApiBaseUrl =
+    typeof __DEV__ !== 'undefined' && __DEV__
+        ? 'http://127.0.0.1:4000'
+        : 'https://www.vantacult.com';
+
+export const API_BASE_URL = configuredApiBaseUrl || defaultApiBaseUrl;
 export const SOCKET_URL = API_BASE_URL;
 
 const client = axios.create({

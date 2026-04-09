@@ -33,6 +33,9 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Copy exported web app from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Ship Android APK downloads with the landing page
+COPY downloads /usr/share/nginx/html/downloads
+
 # Expose port (Internal 80)
 EXPOSE 80
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, useWindowDimensions, Dimensions, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, useWindowDimensions, Dimensions, Animated, Linking, Platform } from 'react-native';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -149,6 +149,64 @@ const pricingHighlights = [
     },
 ];
 
+const fiestoAndroidApps = [
+    {
+        icon: 'chef-hat',
+        name: 'Fiesto Chef',
+        badge: 'Android kitchen app',
+        summary: 'Built for chefs to receive incoming orders, update prep status, and call the floor team the moment dishes are ready.',
+        gradient: ['#FF6B35', '#FF8F5E'] as const,
+        featureList: [
+            'Live kitchen order queue',
+            'Ready-for-pickup updates',
+            'Priority-based prep flow',
+        ],
+        highlight: 'Recommended APK',
+        detail: 'Smaller ARM64 build for most modern Android phones.',
+        primaryLabel: 'Download ARM64 APK',
+        primaryPath: '/downloads/fiesto-chef-android.apk',
+        secondaryLabel: 'Download universal APK',
+        secondaryPath: '/downloads/fiesto-chef-universal.apk',
+    },
+    {
+        icon: 'silverware-fork-knife',
+        name: 'Fiesto Waiter',
+        badge: 'Android floor app',
+        summary: 'Made for your service team to catch customer calls, track delivery updates, and manage table-side service in real time.',
+        gradient: ['#06B6D4', '#22D3EE'] as const,
+        featureList: [
+            'Instant customer call alerts',
+            'Order-ready notifications',
+            'Fast table delivery workflow',
+        ],
+        highlight: 'Recommended APK',
+        detail: 'Smaller ARM64 build for most modern Android phones.',
+        primaryLabel: 'Download ARM64 APK',
+        primaryPath: '/downloads/fiesto-waiter-android.apk',
+        secondaryLabel: 'Download universal APK',
+        secondaryPath: '/downloads/fiesto-waiter-universal.apk',
+    },
+];
+
+const buildPublicUrl = (path: string) => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        return new URL(path, window.location.origin).toString();
+    }
+
+    return `https://www.vantacult.com${path}`;
+};
+
+const openPublicUrl = async (path: string) => {
+    const targetUrl = buildPublicUrl(path);
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.location.href = targetUrl;
+        return;
+    }
+
+    await Linking.openURL(targetUrl);
+};
+
 export default function LandingScreen({ navigation }: any) {
     const { width: windowWidth } = useWindowDimensions();
     const isWide = windowWidth > 900;
@@ -210,8 +268,18 @@ export default function LandingScreen({ navigation }: any) {
                     <View style={[styles.navbarInner, isWide ? styles.navbarInnerWide : styles.navbarInnerMobile]}>
                         <View style={[styles.navBrand, !isWide && styles.navBrandMobile]}>
                             <View style={styles.navLogoContainer}>
-                                <MaterialCommunityIcons name="target" size={18} color="#0F172A" />
-                                <Text style={styles.navLogo}>Fiesto</Text>
+                                <LinearGradient
+                                    colors={['#FF6B35', '#FF8F5E']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.navLogoBadge}
+                                >
+                                    <Text style={styles.navLogoBadgeText}>F</Text>
+                                </LinearGradient>
+                                <View>
+                                    <Text style={styles.navLogo}>Fiesto</Text>
+                                    <Text style={styles.navLogoCaption}>Cafe ordering suite</Text>
+                                </View>
                             </View>
                         </View>
 
@@ -494,15 +562,75 @@ export default function LandingScreen({ navigation }: any) {
                 <ResponsiveContainer maxWidth={1200}>
                     <View style={styles.appsHeader}>
                         <View style={styles.sectionLabelPill}>
-                            <Text style={styles.sectionLabelText}>ECOSYSTEM</Text>
+                            <Text style={styles.sectionLabelText}>ANDROID DOWNLOADS</Text>
                         </View>
-                        <Text style={styles.appsTitle}>Three Powerful Applications</Text>
+                        <Text style={styles.appsTitle}>Install the Fiesto team apps</Text>
                         <Text style={styles.appsSubtitle}>
-                            Specialized tools for different team members. Everything synced in real-time.
+                            The owner dashboard stays on the web. Your chef and waiter teams can download dedicated Android APKs directly from this landing page.
                         </Text>
                     </View>
 
-                    <View style={[styles.appsGrid, isWide && styles.appsGridWide]}>
+                    <View style={styles.appsOverviewCard}>
+                        <View style={styles.appsOverviewRow}>
+                            <View style={styles.appsOverviewPill}>
+                                <Text style={styles.appsOverviewPillText}>Owner dashboard on web</Text>
+                            </View>
+                            <View style={styles.appsOverviewPill}>
+                                <Text style={styles.appsOverviewPillText}>Android APKs ready</Text>
+                            </View>
+                        </View>
+                        <Text style={styles.appsOverviewTitle}>One Fiesto system, role-based Android downloads.</Text>
+                        <Text style={styles.appsOverviewText}>
+                            Fiesto Chef runs the kitchen flow, Fiesto Waiter keeps floor service fast, and both connect directly to your live VPS deployment.
+                        </Text>
+                    </View>
+
+                    <View style={[styles.appsDownloadGrid, isWide && styles.appsDownloadGridWide]}>
+                        {fiestoAndroidApps.map((app) => (
+                            <View key={app.name} style={styles.appCard}>
+                                <View style={styles.appCardTopRow}>
+                                    <LinearGradient colors={app.gradient} style={styles.appIconContainer}>
+                                        <MaterialCommunityIcons name={app.icon} size={30} color="#FFFFFF" />
+                                    </LinearGradient>
+                                    <View style={styles.appBadge}>
+                                        <Text style={styles.appBadgeText}>{app.badge}</Text>
+                                    </View>
+                                </View>
+                                <Text style={styles.appName}>{app.name}</Text>
+                                <Text style={styles.appSummary}>{app.summary}</Text>
+
+                                <View style={styles.appHighlightCard}>
+                                    <Text style={styles.appHighlightLabel}>{app.highlight}</Text>
+                                    <Text style={styles.appHighlightText}>{app.detail}</Text>
+                                </View>
+
+                                <View style={styles.appFeatureList}>
+                                    {app.featureList.map((feature) => (
+                                        <View key={feature} style={styles.appFeatureRow}>
+                                            <View style={styles.appFeatureDot} />
+                                            <Text style={styles.appFeatureText}>{feature}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+
+                                <TouchableOpacity style={styles.downloadPrimaryButton} onPress={() => openPublicUrl(app.primaryPath)}>
+                                    <LinearGradient colors={app.gradient} style={styles.downloadPrimaryGradient}>
+                                        <Text style={styles.downloadPrimaryText}>{app.primaryLabel}</Text>
+                                    </LinearGradient>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity style={styles.downloadSecondaryButton} onPress={() => openPublicUrl(app.secondaryPath)}>
+                                    <Text style={styles.downloadSecondaryText}>{app.secondaryLabel}</Text>
+                                </TouchableOpacity>
+
+                                <Text style={styles.downloadSupportText}>
+                                    Use the universal APK only if the recommended ARM64 build does not install on the device.
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+
+                    <View style={styles.legacyAppsGrid}>
                         {[
                             { icon: 'finance', name: 'Owner Dashboard', gradient: ['#FF6B35', '#FF8F5E'] as const, features: '• Real-time sales tracking\n• Revenue & analytics\n• Staff management\n• Inventory control' },
                             { icon: 'chef-hat', name: 'Chef Mobile App', gradient: ['#8B5CF6', '#A78BFA'] as const, features: '• Live order queue\n• Priority notifications\n• Order timing\n• Quality control' },
@@ -665,8 +793,18 @@ export default function LandingScreen({ navigation }: any) {
                     <View style={styles.footerContent}>
                         <View style={styles.footerBrand}>
                             <View style={styles.footerLogoContainer}>
-                                <MaterialCommunityIcons name="target" size={18} color="#FFFFFF" />
-                                <Text style={styles.footerLogo}>Fiesto</Text>
+                                <LinearGradient
+                                    colors={['#FF6B35', '#FF8F5E']}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.footerLogoBadge}
+                                >
+                                    <Text style={styles.footerLogoBadgeText}>F</Text>
+                                </LinearGradient>
+                                <View>
+                                    <Text style={styles.footerLogo}>Fiesto</Text>
+                                    <Text style={styles.footerLogoCaption}>Built for cafes that move fast.</Text>
+                                </View>
                             </View>
                             <Text style={styles.footerTagline}>Making cafes more profitable, one order at a time.</Text>
                         </View>
@@ -789,7 +927,21 @@ const styles = StyleSheet.create({
         marginBottom: 0,
     },
     navLogoContainer: { flexDirection: 'row', alignItems: 'center', marginRight: 8 },
+    navLogoBadge: {
+        width: 44,
+        height: 44,
+        borderRadius: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12,
+        shadowColor: '#FF6B35',
+        shadowOpacity: 0.18,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 6 },
+    },
+    navLogoBadgeText: { color: '#FFFFFF', fontSize: 22, fontWeight: '900', letterSpacing: -0.7 },
     navLogo: { fontSize: 24, fontWeight: '800', color: '#0F172A', letterSpacing: -0.5 },
+    navLogoCaption: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 2, letterSpacing: 0.2 },
     navLinks: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' },
     navLink: { marginRight: 20, marginBottom: 8 },
     navLinkText: { color: '#64748B', fontSize: 14, fontWeight: '500', letterSpacing: 0.2 },
@@ -1267,34 +1419,128 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         lineHeight: 24,
     },
+    appsOverviewCard: {
+        backgroundColor: '#0F172A',
+        borderRadius: 28,
+        padding: 28,
+        marginBottom: 28,
+        overflow: 'hidden',
+    },
+    appsOverviewRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16 },
+    appsOverviewPill: {
+        backgroundColor: 'rgba(255,255,255,0.12)',
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        marginRight: 10,
+        marginBottom: 10,
+    },
+    appsOverviewPillText: {
+        color: '#F8FAFC',
+        fontSize: 12,
+        fontWeight: '700',
+        letterSpacing: 0.3,
+    },
+    appsOverviewTitle: {
+        color: '#FFFFFF',
+        fontSize: 28,
+        fontWeight: '900',
+        marginBottom: 10,
+        letterSpacing: -0.6,
+    },
+    appsOverviewText: {
+        color: '#CBD5E1',
+        fontSize: 15,
+        lineHeight: 24,
+        fontWeight: '500',
+        maxWidth: 760,
+    },
     appsGrid: { flexDirection: 'column' },
     appsGridWide: { flexDirection: 'row', justifyContent: 'space-between' },
+    appsDownloadGrid: { flexDirection: 'column' },
+    appsDownloadGridWide: { flexDirection: 'row', justifyContent: 'space-between' },
+    legacyAppsGrid: { display: 'none' },
     appCard: {
         backgroundColor: '#FFFFFF',
-        borderRadius: 12,
+        borderRadius: 24,
         padding: 28,
         marginBottom: 20,
         flex: 1,
         minWidth: 280,
-        alignItems: 'center',
         borderWidth: 1,
         borderColor: '#E5E7EB',
         shadowColor: '#0F172A',
-        shadowOpacity: 0.04,
-        shadowRadius: 16,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: 3,
+        shadowOpacity: 0.08,
+        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 10 },
+        elevation: 5,
     },
+    appCardTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
     appIconContainer: {
         width: 64,
         height: 64,
-        borderRadius: 10,
+        borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 18,
     },
     appIcon: { fontSize: 30 },
-    appName: { fontSize: 19, color: '#0F172A', fontWeight: '800', textAlign: 'center', marginBottom: 14, letterSpacing: -0.3 },
+    appBadge: {
+        backgroundColor: '#F8FAFC',
+        borderRadius: 999,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+    },
+    appBadgeText: { color: '#0F172A', fontSize: 12, fontWeight: '700', letterSpacing: 0.2 },
+    appName: { fontSize: 24, color: '#0F172A', fontWeight: '800', marginBottom: 12, letterSpacing: -0.5 },
+    appSummary: { fontSize: 14, color: '#475569', lineHeight: 23, fontWeight: '500', marginBottom: 16 },
+    appHighlightCard: {
+        backgroundColor: '#FFF7ED',
+        borderRadius: 18,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#FED7AA',
+        marginBottom: 18,
+    },
+    appHighlightLabel: { color: '#C2410C', fontSize: 12, fontWeight: '800', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 4 },
+    appHighlightText: { color: '#7C2D12', fontSize: 13, fontWeight: '600', lineHeight: 20 },
+    appFeatureList: { marginBottom: 20 },
+    appFeatureRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+    appFeatureDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: '#FF8F5E',
+        marginRight: 10,
+    },
+    appFeatureText: { flex: 1, color: '#334155', fontSize: 14, fontWeight: '600', lineHeight: 20 },
+    downloadPrimaryButton: {
+        borderRadius: 16,
+        overflow: 'hidden',
+        marginBottom: 12,
+    },
+    downloadPrimaryGradient: {
+        paddingVertical: 16,
+        paddingHorizontal: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 16,
+    },
+    downloadPrimaryText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
+    downloadSecondaryButton: {
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: '#CBD5E1',
+        backgroundColor: '#F8FAFC',
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 12,
+    },
+    downloadSecondaryText: { color: '#0F172A', fontSize: 14, fontWeight: '700', letterSpacing: 0.2 },
+    downloadSupportText: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '500' },
     appFeatures: { fontSize: 13, color: '#64748B', lineHeight: 22, textAlign: 'center', fontWeight: '500' },
 
     // ===========================
@@ -1558,7 +1804,17 @@ const styles = StyleSheet.create({
     footerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
     footerBrand: { flex: 1 },
     footerLogoContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    footerLogoBadge: {
+        width: 40,
+        height: 40,
+        borderRadius: 13,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 12,
+    },
+    footerLogoBadgeText: { color: '#FFFFFF', fontSize: 20, fontWeight: '900', letterSpacing: -0.6 },
     footerLogo: { color: '#FFFFFF', fontSize: 20, fontWeight: '900', letterSpacing: -0.3 },
+    footerLogoCaption: { color: '#94A3B8', fontSize: 11, fontWeight: '600', marginTop: 2, letterSpacing: 0.2 },
     footerTagline: { color: '#64748B', fontSize: 13, maxWidth: 300, fontWeight: '400', lineHeight: 20 },
     footerLinks: { flexDirection: 'row' },
     footerColumn: { marginLeft: 40 },

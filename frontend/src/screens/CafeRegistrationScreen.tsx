@@ -19,9 +19,27 @@ const pricingRules = [
     'Daytime support during working hours is included.',
 ];
 
+const getSlugPrefix = () => {
+    if (typeof window !== 'undefined' && window.location.host) {
+        return `${window.location.host}/`;
+    }
+
+    const configuredAppUrl = process.env.EXPO_PUBLIC_APP_URL;
+    if (configuredAppUrl) {
+        try {
+            return `${new URL(configuredAppUrl).host}/`;
+        } catch {
+            // Ignore malformed build-time values and fall back to the temporary public domain.
+        }
+    }
+
+    return 'vantacult.com/';
+};
+
 export default function CafeRegistrationScreen({ navigation }: any) {
     const { width } = useWindowDimensions();
     const isWide = width > 980;
+    const slugPrefix = getSlugPrefix();
 
     const [loading, setLoading] = useState(false);
     const [verifying, setVerifying] = useState(false);
@@ -247,7 +265,7 @@ export default function CafeRegistrationScreen({ navigation }: any) {
                                             <View style={styles.formSection}>
                                                 <Text style={styles.fieldLabel}>Desired URL slug</Text>
                                                 <View style={styles.slugWrapper}>
-                                                    <Text style={styles.slugPrefix}>cafeqr.com/</Text>
+                                                    <Text style={styles.slugPrefix}>{slugPrefix}</Text>
                                                     <TextInput
                                                         style={styles.slugInput}
                                                         placeholder="my-cafe"

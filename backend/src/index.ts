@@ -17,6 +17,7 @@ if (!process.env.JWT_SECRET) {
 
 import { prisma } from './prisma';
 import { initSocket } from './socket';
+import { allowedOrigins } from './config/runtime';
 
 const app = express();
 const httpServer = createServer(app);
@@ -31,16 +32,6 @@ app.use(helmet({
     contentSecurityPolicy: false, // Disabled for API servers
     crossOriginEmbedderPolicy: false,
 }));
-
-// CORS: Strict origin allowlist from environment
-const allowedOrigins = process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-    : [
-        'http://localhost:8081', 'http://127.0.0.1:8081',
-        'http://localhost:8082', 'http://127.0.0.1:8082',
-        'http://localhost:8083', 'http://127.0.0.1:8083',
-        'http://localhost:19006', 'http://localhost:3000'
-      ];
 
 app.use(cors({
     origin: (origin, callback) => {
