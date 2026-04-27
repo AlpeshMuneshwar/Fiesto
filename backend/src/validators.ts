@@ -153,6 +153,17 @@ export const paymentVerifySchema = z.object({
     transactionId: z.string().optional(),
 });
 
+export const razorpayCreateOrderSchema = z.object({
+    orderId: z.string().min(1, 'Order ID is required'),
+    notes: z.record(z.string(), z.string()).optional(),
+});
+
+export const razorpayVerifySchema = z.object({
+    razorpay_order_id: z.string().min(1, 'Razorpay order ID is required'),
+    razorpay_payment_id: z.string().min(1, 'Razorpay payment ID is required'),
+    razorpay_signature: z.string().min(1, 'Razorpay signature is required'),
+});
+
 export const billGenerateSchema = z.object({
     paymentMethod: z.string().max(50).optional().default('CASH'),
     notes: z.string().max(200).optional(),
@@ -212,6 +223,16 @@ export const profileUpdateSchema = z.object({
     name: z.string().min(1).max(100).optional(),
     address: z.string().max(500).optional(),
     logoUrl: z.string().url().optional().nullable(),
+    coverImage: z.string().url().optional().nullable(),
+    galleryImages: z.string().optional().nullable(),
+});
+
+export const discoveryProfileSchema = z.object({
+    city: z.string().min(2).max(100),
+    latitude: z.number().min(-90).max(90).nullable().optional(),
+    longitude: z.number().min(-180).max(180).nullable().optional(),
+    isFeatured: z.boolean().optional(),
+    featuredPriority: z.number().int().min(0).max(1000).optional(),
 });
 
 export const categoryToggleSchema = z.object({
@@ -243,6 +264,11 @@ export const cafeSettingsSchema = z.object({
     menuImagesEnabled: z.boolean().optional(),
     currency: z.string().max(5).optional(),
     currencySymbol: z.string().max(5).optional(),
+    reservationsEnabled: z.boolean().optional(),
+    platformFeeAmount: z.number().min(0).max(10000).optional(),
+    preOrderAdvanceRate: z.number().min(0).max(100).optional(),
+    businessOpenTime: z.string().regex(/^\d{2}:\d{2}$/, 'Business open time must be HH:mm').optional().nullable(),
+    businessCloseTime: z.string().regex(/^\d{2}:\d{2}$/, 'Business close time must be HH:mm').optional().nullable(),
 });
 
 // ==========================================
@@ -256,6 +282,16 @@ export const reservationSchema = z.object({
     scheduledAt: z.string().datetime().optional(),
     items: z.array(orderItemSchema).default([]),
     deviceIdentifier: z.string().optional()
+});
+
+export const nearbyCafeRequestSchema = z.object({
+    city: z.string().min(2).max(100),
+    locality: z.string().max(100).optional().nullable(),
+    latitude: z.number().min(-90).max(90).optional().nullable(),
+    longitude: z.number().min(-180).max(180).optional().nullable(),
+    note: z.string().max(300).optional().nullable(),
+    customerEmail: z.string().email().optional().nullable(),
+    customerName: z.string().max(100).optional().nullable(),
 });
 
 // ==========================================

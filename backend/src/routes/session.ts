@@ -6,6 +6,7 @@ import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import { validate, sessionStartSchema, sessionJoinSchema, forgotCodeSchema, tableSchema } from '../validators';
 import { asyncHandler } from '../middleware/error-handler';
 import { recordActivity } from '../utils/audit';
+import { activateNextQueuedReservation } from '../utils/reservation-queue';
 import { buildCafeTableUrl } from '../config/runtime';
 
 const router = Router();
@@ -195,12 +196,70 @@ router.post('/start', validate(sessionStartSchema), asyncHandler(async (req: Req
         } else {
             // Return LOCKED status for other devices
             res.json({
-                status: 'LOCKED',
-                message: 'This table is occupied. Please enter the session code to join.',
-                sessionId: activeSession.id
+                status: activeSession.isPrebooked && !activeSession.deviceIdentifier ? 'RESERVATION_READY' : 'LOCKED',
+                message: activeSession.isPrebooked && !activeSession.deviceIdentifier
+                    ? 'This table is reserved. Enter the reservation code to check in.'
+                    : 'This table is occupied. Please enter the session code to join.',
+                sessionId: activeSession.id,
+                isReservationEntry: Boolean(activeSession.isPrebooked && !activeSession.deviceIdentifier),
             });
             return;
         }
+    }
+
+    const queuedReservation = await prisma.session.findFirst({
+        where: {
+            cafeId: targetCafeId,
+            tableId: table.id,
+            isPrebooked: true,
+            isActive: false,
+        },
+        orderBy: [
+            { scheduledAt: 'asc' },
+            { createdAt: 'asc' },
+        ],
+    });
+
+    if (queuedReservation) {
+        if (!joinCode) {
+            res.status(400).json({
+                error: 'This table has a reservation waiting. Enter the reservation code to continue.',
+                requiresJoinCode: true,
+                sessionId: queuedReservation.id,
+                isReservationEntry: true,
+            });
+            return;
+        }
+
+        if (queuedReservation.joinCode !== joinCode) {
+            res.status(403).json({
+                error: 'Invalid reservation code for this table.',
+                isReservationEntry: true,
+            });
+            return;
+        }
+
+        const activatedReservation = await prisma.session.update({
+            where: { id: queuedReservation.id },
+            data: {
+                isActive: true,
+                deviceIdentifier,
+                updatedBy: 'CUSTOMER',
+            },
+        });
+
+        recordActivity({
+            cafeId: targetCafeId,
+            actionType: 'SESSION_START',
+            message: `Reserved session checked in at Table ${table.number}`,
+            metadata: { sessionId: activatedReservation.id, tableNumber: table.number, reservedCheckIn: true },
+        });
+
+        res.json({
+            message: 'Reserved session activated successfully',
+            session: activatedReservation,
+        });
+        return;
     }
 
     // Start a new session — enforce a join code for security
@@ -253,8 +312,16 @@ router.post('/join', validate(sessionJoinSchema), asyncHandler(async (req: Reque
         return;
     }
 
+    const updatedSession = await prisma.session.update({
+        where: { id: sessionId },
+        data: {
+            deviceIdentifier: session.deviceIdentifier || deviceIdentifier,
+            updatedBy: 'CUSTOMER'
+        }
+    });
+
     // Successfully joined
-    res.json({ message: 'Joined session successfully', session });
+    res.json({ message: 'Joined session successfully', session: updatedSession });
 }));
 
 // Customer forgets code, notify waiter
@@ -299,6 +366,7 @@ router.post('/:id/deactivate', authenticate, requireRole(['WAITER', 'ADMIN']), a
         where: { id, cafeId },
         data: { 
             isActive: false,
+            isPrebooked: false,
             updatedBy: req.user?.id
         },
         include: { table: true }
@@ -314,7 +382,9 @@ router.post('/:id/deactivate', authenticate, requireRole(['WAITER', 'ADMIN']), a
         metadata: { sessionId: id, tableNumber: session.table?.number }
     });
 
-    res.json({ message: 'Session deactivated successfully', session });
+    const promotedSession = await activateNextQueuedReservation(session.tableId, cafeId);
+
+    res.json({ message: 'Session deactivated successfully', session, promotedSession });
 }));
 
 // Admin: Regenerate QR Token for a table (Invalidates old QR)

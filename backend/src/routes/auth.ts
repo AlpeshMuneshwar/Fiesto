@@ -96,6 +96,7 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
     if (!user.isEmailVerified && user.role !== 'WAITER' && user.role !== 'CHEF') {
         res.status(403).json({ 
             error: 'Email not verified. Please verify your email to login.',
+            code: 'EMAIL_NOT_VERIFIED',
             needsVerification: true,
             email: user.email 
         });

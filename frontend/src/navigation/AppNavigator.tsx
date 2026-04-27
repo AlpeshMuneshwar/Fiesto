@@ -21,6 +21,7 @@ import AdminReportsWebScreen from '../screens/AdminReportsWebScreen';
 import ReservationSuccessScreen from '../screens/ReservationSuccessScreen';
 import CustomerProfileWebScreen from '../screens/CustomerProfileWebScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import CafeDetailsScreen from '../screens/CafeDetailsScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -49,6 +50,7 @@ export const linking = {
             ReservationSuccess: 'booking-success',
             CustomerProfile: 'profile',
             Register: 'register-user',
+            CafeDetails: 'discover/cafe/:cafeId',
         },
     },
 };
@@ -85,6 +87,7 @@ export default function AppNavigator() {
             <Stack.Screen name="ReservationSuccess" component={ReservationSuccessScreen as any} options={{ headerShown: false }} />
             <Stack.Screen name="CustomerProfile" component={CustomerProfileWebScreen as any} options={{ headerShown: false }} />
             <Stack.Screen name="Register" component={RegisterScreen as any} options={{ headerShown: false }} />
+            <Stack.Screen name="CafeDetails" component={CafeDetailsScreen as any} options={{ headerShown: false }} />
         </Stack.Navigator>
     );
 }

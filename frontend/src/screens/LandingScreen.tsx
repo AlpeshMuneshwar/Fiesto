@@ -253,9 +253,14 @@ export default function LandingScreen({ navigation }: any) {
         navigation.navigate('CafeRegistration');
     };
 
-    const navigateToClientLogin = () => {
+    const navigateToCustomerLogin = () => {
         setMenuOpen(false);
         navigation.navigate('Login', { loginMode: 'customer' });
+    };
+
+    const navigateToClientStaffLogin = () => {
+        setMenuOpen(false);
+        navigation.navigate('Login', { loginMode: 'staff' });
     };
 
     return (
@@ -297,11 +302,14 @@ export default function LandingScreen({ navigation }: any) {
                                 <TouchableOpacity style={styles.navLink}>
                                     <Text style={styles.navLinkText}>Contact</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity style={styles.navLoginBtn} onPress={navigateToClientLogin}>
-                                    <Text style={styles.navLoginBtnText}>Client Login</Text>
+                                <TouchableOpacity style={styles.navLoginBtn} onPress={navigateToCustomerLogin}>
+                                    <Text style={styles.navLoginBtnText}>Customer Login</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.navLoginBtn} onPress={navigateToClientStaffLogin}>
+                                    <Text style={styles.navLoginBtnText}>Client/Staff Login</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity style={styles.navCtaBtn} onPress={navigateToCafeRegistration}>
-                                    <Text style={styles.navCtaBtnText}>Start Free Trial</Text>
+                                    <Text style={styles.navCtaBtnText}>Client Registration</Text>
                                 </TouchableOpacity>
                             </View>
                         ) : (
@@ -329,11 +337,14 @@ export default function LandingScreen({ navigation }: any) {
                     <TouchableOpacity style={styles.mobileNavItem}>
                         <Text style={styles.mobileNavText}>Contact</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.mobileNavSecondary} onPress={navigateToClientLogin}>
-                        <Text style={styles.mobileNavSecondaryText}>Client Login</Text>
+                    <TouchableOpacity style={styles.mobileNavSecondary} onPress={navigateToCustomerLogin}>
+                        <Text style={styles.mobileNavSecondaryText}>Customer Login</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.mobileNavSecondary} onPress={navigateToClientStaffLogin}>
+                        <Text style={styles.mobileNavSecondaryText}>Client/Staff Login</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.mobileNavCta} onPress={navigateToCafeRegistration}>
-                        <Text style={styles.mobileNavCtaText}>Start Free Trial</Text>
+                        <Text style={styles.mobileNavCtaText}>Client Registration</Text>
                     </TouchableOpacity>
                 </View>
             )}

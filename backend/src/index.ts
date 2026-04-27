@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 
 // Load env vars BEFORE anything else
 dotenv.config();
@@ -14,6 +15,14 @@ if (!process.env.JWT_SECRET) {
     console.error('   Set it in .env or as an environment variable.\n');
     process.exit(1);
 }
+
+process.on('unhandledRejection', (reason) => {
+    console.error('[Unhandled Rejection]', reason);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('[Uncaught Exception]', error);
+});
 
 import { prisma } from './prisma';
 import { initSocket } from './socket';
@@ -67,6 +76,14 @@ const authLimiter = rateLimit({
 });
 
 // Body parser with size limit to prevent oversized payloads
+app.use((req, res, next) => {
+    const requestId = crypto.randomUUID();
+    (req as any).requestId = requestId;
+    res.setHeader('x-request-id', requestId);
+    next();
+});
+
+app.use('/api/payment/razorpay/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 

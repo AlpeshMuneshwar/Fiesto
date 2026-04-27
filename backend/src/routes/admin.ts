@@ -2,11 +2,70 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../prisma';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import bcrypt from 'bcrypt';
-import { validate, staffSchema, profileUpdateSchema, categoryToggleSchema, staffUpdateSchema } from '../validators';
+import { validate, staffSchema, profileUpdateSchema, categoryToggleSchema, staffUpdateSchema, discoveryProfileSchema } from '../validators';
 import { sendOTPEmail } from '../utils/email';
 import { recordActivity } from '../utils/audit';
 
 const router = Router();
+
+router.get('/cafe-status', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+    try {
+        const cafeId = req.user!.cafeId;
+        const cafe = await prisma.cafe.findUnique({
+            where: { id: cafeId },
+            select: { id: true, name: true, isActive: true }
+        });
+
+        if (!cafe) {
+            res.status(404).json({ error: 'Cafe not found' });
+            return;
+        }
+
+        res.json(cafe);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch cafe status' });
+    }
+});
+
+router.patch('/cafe-status', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+    try {
+        const cafeId = req.user!.cafeId;
+        const { isActive } = req.body;
+
+        if (typeof isActive !== 'boolean') {
+            res.status(400).json({ error: 'isActive must be a boolean' });
+            return;
+        }
+
+        const cafe = await prisma.cafe.update({
+            where: { id: cafeId },
+            data: {
+                isActive,
+                updatedBy: req.user?.id
+            }
+        });
+
+        recordActivity({
+            cafeId,
+            staffId: req.user?.id,
+            role: 'ADMIN',
+            actionType: 'SETTINGS_UPDATE',
+            message: `Cafe marked as ${isActive ? 'open' : 'closed'} for discovery`,
+            metadata: { isActive }
+        });
+
+        res.json({
+            message: `Cafe ${isActive ? 'opened' : 'closed'} successfully`,
+            cafe: {
+                id: cafe.id,
+                name: cafe.name,
+                isActive: cafe.isActive
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update cafe status' });
+    }
+});
 
 // Get Admin Stats (Dashboard Insights)
 router.get('/stats', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
@@ -269,7 +328,7 @@ router.delete('/staff/:id', authenticate, requireRole(['ADMIN']), async (req: Au
 // Admin: Update Cafe Profile
 router.put('/cafe-profile', authenticate, requireRole(['ADMIN']), validate(profileUpdateSchema), async (req: AuthRequest, res: Response) => {
     try {
-        const { name, address, logoUrl } = req.body;
+        const { name, address, logoUrl, coverImage, galleryImages } = req.body;
         const cafeId = req.user!.cafeId;
 
         const cafe = await prisma.cafe.update({
@@ -278,6 +337,8 @@ router.put('/cafe-profile', authenticate, requireRole(['ADMIN']), validate(profi
                 name, 
                 address, 
                 logoUrl,
+                coverImage,
+                galleryImages,
                 updatedBy: req.user?.id
             } as any
         });
@@ -295,6 +356,82 @@ router.put('/cafe-profile', authenticate, requireRole(['ADMIN']), validate(profi
         res.json(cafe);
     } catch (error) {
         res.status(500).json({ error: 'Failed to update cafe profile' });
+    }
+});
+
+// Admin: get discovery location/featured profile
+router.get('/discovery-profile', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+    try {
+        const cafeId = req.user!.cafeId;
+        const cafe = await prisma.cafe.findUnique({
+            where: { id: cafeId },
+            select: {
+                id: true,
+                name: true,
+                city: true,
+                latitude: true,
+                longitude: true,
+                isFeatured: true,
+                featuredPriority: true,
+                coverImage: true,
+                galleryImages: true,
+            },
+        });
+
+        if (!cafe) {
+            res.status(404).json({ error: 'Cafe not found' });
+            return;
+        }
+
+        res.json(cafe);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch discovery profile' });
+    }
+});
+
+// Admin: update discovery location/featured profile
+router.put('/discovery-profile', authenticate, requireRole(['ADMIN']), validate(discoveryProfileSchema), async (req: AuthRequest, res: Response) => {
+    try {
+        const cafeId = req.user!.cafeId;
+        const { city, latitude, longitude, isFeatured, featuredPriority, coverImage, galleryImages } = req.body;
+
+        const cafe = await prisma.cafe.update({
+            where: { id: cafeId },
+            data: {
+                city,
+                latitude: latitude ?? null,
+                longitude: longitude ?? null,
+                isFeatured: typeof isFeatured === 'boolean' ? isFeatured : undefined,
+                featuredPriority: typeof featuredPriority === 'number' ? featuredPriority : undefined,
+                coverImage: coverImage !== undefined ? coverImage : undefined,
+                galleryImages: galleryImages !== undefined ? galleryImages : undefined,
+                updatedBy: req.user?.id,
+            },
+            select: {
+                id: true,
+                name: true,
+                city: true,
+                latitude: true,
+                longitude: true,
+                isFeatured: true,
+                featuredPriority: true,
+                coverImage: true,
+                galleryImages: true,
+            },
+        });
+
+        recordActivity({
+            cafeId,
+            staffId: req.user?.id,
+            role: 'ADMIN',
+            actionType: 'SETTINGS_UPDATE',
+            message: 'Updated discovery profile',
+            metadata: { city, latitude, longitude, isFeatured, featuredPriority, coverImage, galleryImages },
+        });
+
+        res.json({ message: 'Discovery profile updated', cafe });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update discovery profile' });
     }
 });
 

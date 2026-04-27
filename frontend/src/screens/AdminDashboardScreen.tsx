@@ -8,6 +8,7 @@ import ResponsiveContainer from '../components/ResponsiveContainer';
 
 export default function AdminDashboardScreen({ navigation }: any) {
     const [stats, setStats] = useState<any>(null);
+    const [cafeStatus, setCafeStatus] = useState<any>(null);
     const [orders, setOrders] = useState<any[]>([]);
     const [tables, setTables] = useState<any[]>([]);
     const [menu, setMenu] = useState<any[]>([]);
@@ -19,8 +20,9 @@ export default function AdminDashboardScreen({ navigation }: any) {
 
     const fetchData = useCallback(async () => {
         try {
-            const [statsRes, ordersRes, tablesRes, menuRes, staffRes] = await Promise.all([
+            const [statsRes, cafeStatusRes, ordersRes, tablesRes, menuRes, staffRes] = await Promise.all([
                 client.get('/admin/stats').catch(() => ({ data: null })),
+                client.get('/admin/cafe-status').catch(() => ({ data: null })),
                 client.get('/admin/orders/all').catch(() => ({ data: [] })),
                 client.get('/session/tables').catch(() => ({ data: [] })),
                 client.get('/menu').catch(() => ({ data: [] })),
@@ -28,6 +30,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
             ]);
 
             setStats(statsRes.data);
+            setCafeStatus(cafeStatusRes.data);
             setOrders(ordersRes.data || []);
             setTables(tablesRes.data || []);
             setMenu(menuRes.data || []);
@@ -50,6 +53,17 @@ export default function AdminDashboardScreen({ navigation }: any) {
     const handleLogout = async () => {
         await AsyncStorage.multiRemove(['userToken', 'userRole', 'cafeId']);
         navigation.replace('Login');
+    };
+
+    const toggleCafeStatus = async () => {
+        if (!cafeStatus) return;
+        const nextValue = !cafeStatus.isActive;
+        try {
+            const res = await client.patch('/admin/cafe-status', { isActive: nextValue });
+            setCafeStatus(res.data.cafe);
+        } catch (error) {
+            console.error('Cafe Status Update Error:', error);
+        }
     };
 
     const statCards = [
@@ -117,6 +131,28 @@ export default function AdminDashboardScreen({ navigation }: any) {
                                 </TouchableOpacity>
                                 <TouchableOpacity style={styles.dangerButton} onPress={handleLogout}>
                                     <Text style={styles.dangerButtonText}>Logout</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        <View style={styles.section}>
+                            <Text style={styles.sectionLabel}>CAFE STATUS</Text>
+                            <View style={styles.statusPanel}>
+                                <View>
+                                    <Text style={styles.statusTitle}>{cafeStatus?.isActive ? 'Open on discovery' : 'Closed on discovery'}</Text>
+                                    <Text style={styles.statusSubtitle}>
+                                        {cafeStatus?.isActive
+                                            ? 'Customers can currently find and book your cafe.'
+                                            : 'Discovery, booking, and preorder entry points are paused.'}
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    style={[styles.statusButton, cafeStatus?.isActive ? styles.statusButtonDanger : styles.statusButtonPrimary]}
+                                    onPress={toggleCafeStatus}
+                                >
+                                    <Text style={[styles.statusButtonText, cafeStatus?.isActive ? styles.statusButtonTextDanger : styles.statusButtonTextPrimary]}>
+                                        {cafeStatus?.isActive ? 'Close Cafe' : 'Open Cafe'}
+                                    </Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -208,6 +244,15 @@ const styles = StyleSheet.create({
     dangerButtonText: { color: '#B91C1C', fontSize: 14, fontWeight: '800' },
     section: { marginBottom: 28 },
     sectionLabel: { color: '#94A3B8', fontSize: 12, fontWeight: '800', letterSpacing: 1.1, marginBottom: 14 },
+    statusPanel: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D7DEE7', padding: 20 },
+    statusTitle: { color: '#0F172A', fontSize: 22, fontWeight: '800', marginBottom: 8 },
+    statusSubtitle: { color: '#475569', fontSize: 14, lineHeight: 22, fontWeight: '500', marginBottom: 18 },
+    statusButton: { alignSelf: 'flex-start', borderWidth: 1, paddingHorizontal: 18, paddingVertical: 14 },
+    statusButtonPrimary: { borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' },
+    statusButtonDanger: { borderColor: '#FECACA', backgroundColor: '#FFF1F2' },
+    statusButtonText: { fontSize: 14, fontWeight: '800' },
+    statusButtonTextPrimary: { color: '#166534' },
+    statusButtonTextDanger: { color: '#B91C1C' },
     statGrid: { flexDirection: 'column' },
     statGridWide: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
     statCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D7DEE7', padding: 20, marginBottom: 16 },

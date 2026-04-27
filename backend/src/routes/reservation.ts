@@ -43,26 +43,37 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
             return;
         }
 
+        const reservationTime = scheduledAt ? new Date(scheduledAt) : new Date();
+
         // Check if table is currently vacant
         const activeSession = await prisma.session.findFirst({
             where: { tableId, isActive: true }
         });
 
-        if (activeSession) {
-            res.status(409).json({ error: 'Table is no longer available. Please select another.' });
-            return;
-        }
+        const queueAhead = await prisma.session.count({
+            where: {
+                tableId,
+                isPrebooked: true,
+                isActive: false,
+                scheduledAt: {
+                    gte: new Date()
+                }
+            }
+        });
+
+        const shouldQueue = Boolean(activeSession);
 
         // Proceed to create booking
-        // 1. Create session and mark as occupied immediately
+        // 1. Create session immediately if the table is free, otherwise hold it in queue.
         const session = await prisma.session.create({
             data: {
                 cafeId,
                 tableId,
                 customerId,
-                isActive: true, // Locks the table
+                isActive: !shouldQueue,
                 isPrebooked: true,
                 deviceIdentifier,
+                scheduledAt: reservationTime,
                 joinCode: Math.floor(1000 + Math.random() * 9000).toString(), // 4-digit token
                 createdBy: customerId,
                 updatedBy: customerId
@@ -95,7 +106,8 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
                 data: {
                     cafeId,
                     sessionId: session.id,
-                    status: 'RECEIVED', // Bypasses APPROVAL since it's pre-paid
+                    orderType: 'PRE_ORDER',
+                    status: shouldQueue ? 'PENDING_APPROVAL' : 'RECEIVED',
                     isPreorder: true,
                     items: JSON.stringify(items),
                     subtotal,
@@ -109,24 +121,40 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
                 }
             });
 
-            // Notify Chef room of pre-order immediately
-            io.to(`CHEF_${cafeId}`).emit('new_order', {
-                ...order,
-                session: { ...session, table }
+            await prisma.payment.create({
+                data: {
+                    orderId: order.id,
+                    amount: preOrderAmount,
+                    provider: 'RAZORPAY',
+                    status: 'PENDING',
+                    paymentStage: 'PENDING',
+                    createdBy: customerId,
+                    updatedBy: customerId
+                } as any
             });
+
+            // Notify Chef room of pre-order immediately
+            if (!shouldQueue) {
+                io.to(`CHEF_${cafeId}`).emit('new_order', {
+                    ...order,
+                    session: { ...session, table }
+                });
+            }
         }
 
         // Audit Log for Reservation
         recordActivity({
             cafeId,
-            actionType: 'SESSION_START',
-            message: `New Reservation for Table ${table.number} (Party: ${partySize})`,
-            metadata: { sessionId: session.id, partySize, orderId: order?.id }
+            actionType: shouldQueue ? 'QUEUE_JOIN' : 'SESSION_START',
+            message: `${shouldQueue ? 'Queued' : 'New'} Reservation for Table ${table.number} (Party: ${partySize})`,
+            metadata: { sessionId: session.id, partySize, orderId: order?.id, queueAhead }
         });
 
         res.json({
-            message: 'Reservation confirmed',
+            message: shouldQueue ? 'Reservation queued successfully' : 'Reservation confirmed',
             session,
+            reservationStatus: shouldQueue ? 'QUEUED' : 'CONFIRMED',
+            queuePosition: shouldQueue ? queueAhead + 1 : 0,
             preOrder: order ? {
                id: order.id,
                advancePaid,

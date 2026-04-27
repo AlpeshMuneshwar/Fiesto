@@ -6,15 +6,15 @@ import useApi from '../hooks/useApi';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 
 const benefits = [
-    'Create one client account for bookings, discovery, and repeat visits.',
+    'Create one customer account for bookings, discovery, and repeat visits.',
     'Verify your email once, then log in with password or OTP.',
     'Stay ready for QR ordering, reservation tracking, and cafe discovery.',
 ];
 
 const accessNotes = [
-    'Use your full name, email, and password to create the client account.',
+    'Use your full name, email, and password to create the customer account.',
     'After signup, we send a verification code to activate the account.',
-    'Once verified, you can log in and continue through the client portal.',
+    'Once verified, you can log in and continue through the customer portal.',
 ];
 
 export default function RegisterScreen({ navigation }: any) {
@@ -63,8 +63,8 @@ export default function RegisterScreen({ navigation }: any) {
                 <ResponsiveContainer maxWidth={1120}>
                     <View style={styles.page}>
                         <View style={styles.header}>
-                            <Text style={styles.badge}>CLIENT REGISTRATION</Text>
-                            <Text style={styles.title}>Create your Fiesto client account</Text>
+                            <Text style={styles.badge}>CUSTOMER REGISTRATION</Text>
+                            <Text style={styles.title}>Create your Fiesto customer account</Text>
                             <Text style={styles.subtitle}>
                                 One clean account for reservations, QR dining journeys, and keeping your cafe activity in one place.
                             </Text>
@@ -150,11 +150,15 @@ export default function RegisterScreen({ navigation }: any) {
                                         onPress={handleRegister}
                                         disabled={loading}
                                     >
-                                        <Text style={styles.primaryButtonText}>{loading ? 'Creating account...' : 'Create client account'}</Text>
+                                        <Text style={styles.primaryButtonText}>{loading ? 'Creating account...' : 'Create customer account'}</Text>
                                     </TouchableOpacity>
 
                                     <TouchableOpacity style={styles.linkBlock} onPress={() => navigation.navigate('Login', { loginMode: 'customer' })}>
-                                        <Text style={styles.linkBlockText}>Already have an account? Log in</Text>
+                                        <Text style={styles.linkBlockText}>Already a customer? Log in</Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity style={styles.linkBlock} onPress={() => navigation.navigate('CafeRegistration')}>
+                                        <Text style={styles.linkBlockText}>Need client/staff account? Register cafe instead</Text>
                                     </TouchableOpacity>
                                 </View>
                             </View>

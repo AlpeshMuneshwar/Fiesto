@@ -6,6 +6,7 @@ import ResponsiveContainer from '../components/ResponsiveContainer';
 
 export default function AdminSettingsScreen() {
     const [settings, setSettings] = useState<any>(null);
+    const [discoveryProfile, setDiscoveryProfile] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
@@ -15,8 +16,12 @@ export default function AdminSettingsScreen() {
 
     const fetchSettings = async () => {
         try {
-            const res = await client.get('/settings');
-            setSettings(res.data);
+            const [settingsRes, profileRes] = await Promise.all([
+                client.get('/settings'),
+                client.get('/admin/discovery-profile').catch(() => ({ data: null })),
+            ]);
+            setSettings(settingsRes.data);
+            setDiscoveryProfile(profileRes.data);
         } catch (error: any) {
             Alert.alert("Error", error.response?.data?.error || "Failed to load settings");
         } finally {
@@ -27,18 +32,36 @@ export default function AdminSettingsScreen() {
     const handleSave = async () => {
         setSaving(true);
         try {
+            const toNullableNumber = (value: any) => {
+                if (value === null || value === undefined || value === '') return null;
+                const parsed = parseFloat(value.toString());
+                return Number.isFinite(parsed) ? parsed : null;
+            };
             // Need to ensure numerics are parsed
             const payload = {
                 ...settings,
                 taxRate: parseFloat(settings.taxRate?.toString() || '0'),
                 serviceChargeRate: parseFloat(settings.serviceChargeRate?.toString() || '0'),
                 avgPrepTimeMinutes: parseInt(settings.avgPrepTimeMinutes?.toString() || '15', 10),
+                platformFeeAmount: parseFloat(settings.platformFeeAmount?.toString() || '0'),
+                preOrderAdvanceRate: parseFloat(settings.preOrderAdvanceRate?.toString() || '0'),
             };
             delete payload.id;
             delete payload.cafeId;
 
             const res = await client.put('/settings', payload);
             setSettings(res.data.settings);
+            if (discoveryProfile) {
+                await client.put('/admin/discovery-profile', {
+                    city: discoveryProfile.city,
+                    latitude: toNullableNumber(discoveryProfile.latitude),
+                    longitude: toNullableNumber(discoveryProfile.longitude),
+                    isFeatured: Boolean(discoveryProfile.isFeatured),
+                    featuredPriority: parseInt(discoveryProfile.featuredPriority?.toString() || '0', 10),
+                    coverImage: discoveryProfile.coverImage || null,
+                    galleryImages: discoveryProfile.galleryImages || null,
+                });
+            }
             Alert.alert("Success", "Settings updated successfully");
         } catch (error: any) {
             Alert.alert("Error", error.response?.data?.error || "Failed to save settings");
@@ -239,6 +262,40 @@ export default function AdminSettingsScreen() {
                     />
                 </View>
 
+                <View style={[styles.card, styles.glassCard]}>
+                    <Text style={styles.sectionTitle}>Reservations & Preorders</Text>
+                    <Text style={styles.helpText}>Control whether discovery users can reserve, queue, and pay deposits.</Text>
+
+                    <ToggleRow
+                        label="Enable Reservations and Discovery Booking"
+                        value={settings.reservationsEnabled}
+                        onChange={(v) => setSettings({ ...settings, reservationsEnabled: v })}
+                    />
+
+                    {settings.reservationsEnabled && (
+                        <View style={styles.subFields}>
+                            <View style={styles.inputRow}>
+                                <Text style={styles.inputLabel}>Platform Fee Amount</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={settings.platformFeeAmount?.toString()}
+                                    keyboardType="decimal-pad"
+                                    onChangeText={(v) => setSettings({ ...settings, platformFeeAmount: v })}
+                                />
+                            </View>
+                            <View style={styles.inputRow}>
+                                <Text style={styles.inputLabel}>Advance Deposit Rate (%)</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={settings.preOrderAdvanceRate?.toString()}
+                                    keyboardType="decimal-pad"
+                                    onChangeText={(v) => setSettings({ ...settings, preOrderAdvanceRate: v })}
+                                />
+                            </View>
+                        </View>
+                    )}
+                </View>
+
                 {/* Currency */}
                 <View style={[styles.card, styles.glassCard]}>
                     <Text style={styles.sectionTitle}>Currency Settings</Text>
@@ -261,6 +318,74 @@ export default function AdminSettingsScreen() {
                 </View>
 
                 {/* Save Button */}
+                <View style={[styles.card, styles.glassCard]}>
+                    <Text style={styles.sectionTitle}>Discovery Profile</Text>
+                    <Text style={styles.helpText}>Set city and geolocation for distance sort. Mark as featured for your city.</Text>
+                    <View style={styles.inputRow}>
+                        <Text style={styles.inputLabel}>City</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={discoveryProfile?.city || ''}
+                            onChangeText={(v) => setDiscoveryProfile({ ...(discoveryProfile || {}), city: v })}
+                        />
+                    </View>
+                    <View style={styles.inputRow}>
+                        <Text style={styles.inputLabel}>Latitude</Text>
+                        <TextInput
+                            style={styles.input}
+                            keyboardType="decimal-pad"
+                            value={discoveryProfile?.latitude?.toString?.() || ''}
+                            onChangeText={(v) => setDiscoveryProfile({ ...(discoveryProfile || {}), latitude: v })}
+                        />
+                    </View>
+                    <View style={styles.inputRow}>
+                        <Text style={styles.inputLabel}>Longitude</Text>
+                        <TextInput
+                            style={styles.input}
+                            keyboardType="decimal-pad"
+                            value={discoveryProfile?.longitude?.toString?.() || ''}
+                            onChangeText={(v) => setDiscoveryProfile({ ...(discoveryProfile || {}), longitude: v })}
+                        />
+                    </View>
+                    <ToggleRow
+                        label="Feature this cafe in city feed"
+                        value={Boolean(discoveryProfile?.isFeatured)}
+                        onChange={(v) => setDiscoveryProfile({ ...(discoveryProfile || {}), isFeatured: v })}
+                    />
+                    <View style={styles.inputRow}>
+                        <Text style={styles.inputLabel}>Featured Priority (lower first)</Text>
+                        <TextInput
+                            style={styles.input}
+                            keyboardType="number-pad"
+                            value={discoveryProfile?.featuredPriority?.toString?.() || '0'}
+                            onChangeText={(v) => setDiscoveryProfile({ ...(discoveryProfile || {}), featuredPriority: v })}
+                        />
+                    </View>
+                    <View style={styles.divider} />
+                    <Text style={styles.helpText}>Provide valid Image URLs for your Discovery Page.</Text>
+                    <View style={styles.inputRow}>
+                        <Text style={styles.inputLabel}>Cover Image URL</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={discoveryProfile?.coverImage || ''}
+                            onChangeText={(v) => setDiscoveryProfile({ ...(discoveryProfile || {}), coverImage: v })}
+                            placeholder="https://..."
+                            placeholderTextColor="#64748B"
+                        />
+                    </View>
+                    <View style={styles.inputRow}>
+                        <Text style={styles.inputLabel}>Gallery Images (comma separated URLs)</Text>
+                        <TextInput
+                            style={[styles.input, { height: 80 }]}
+                            multiline
+                            value={discoveryProfile?.galleryImages || ''}
+                            onChangeText={(v) => setDiscoveryProfile({ ...(discoveryProfile || {}), galleryImages: v })}
+                            placeholder="https://img1.jpg, https://img2.jpg"
+                            placeholderTextColor="#64748B"
+                        />
+                    </View>
+                </View>
+
                 <TouchableOpacity 
                     style={styles.saveBtn} 
                     onPress={handleSave} 

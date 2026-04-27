@@ -1,6 +1,7 @@
 import axios, { InternalAxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getGlobalToast } from '../components/ToastProvider';
+import { normalizeApiError } from '../utils/api-error';
 
 // Extend AxiosRequestConfig to support toast notifications
 declare module 'axios' {
@@ -67,8 +68,10 @@ client.interceptors.response.use(
     },
     (error) => {
         const config = error.config;
-        const status = error.response ? error.response.status : 'NETWORK_ERROR';
-        const errorData = error.response?.data?.error || error.message || 'Unknown error occurred';
+        const normalized = normalizeApiError(error);
+        const status = normalized.status;
+        const errorData = normalized.message;
+        error.normalizedError = normalized;
 
         console.error(`[API Error] ${status}: ${errorData}`, config?.url);
 

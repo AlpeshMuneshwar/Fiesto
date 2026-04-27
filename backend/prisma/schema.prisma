@@ -15,7 +15,14 @@ model Cafe {
   name        String
   slug        String   @unique // used for URLs e.g. cafeqr.com/cafe/slug
   logoUrl     String?
+  coverImage  String?
+  galleryImages String? @db.Text
   address     String?
+  city        String?
+  latitude    Float?
+  longitude   Float?
+  isFeatured  Boolean  @default(false)
+  featuredPriority Int @default(0)
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -28,9 +35,27 @@ model Cafe {
   staffCalls  StaffCall[]
   activityLogs ActivityLog[]
   settings    CafeSettings?
+  nearbyCafeRequests NearbyCafeRequest[]
 
   createdBy   String?
   updatedBy   String?
+}
+
+model NearbyCafeRequest {
+  id         String   @id @default(uuid())
+  city       String
+  locality   String?
+  latitude   Float?
+  longitude  Float?
+  note       String?
+  customerEmail String?
+  customerName String?
+  source     String   @default("DISCOVERY_APP")
+  cafeId     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  cafe       Cafe? @relation(fields: [cafeId], references: [id])
 }
 
 model CafeSettings {
@@ -132,6 +157,7 @@ model Session {
   deviceIdentifier String?
   joinCode  String?
   scheduledAt DateTime?
+  slotDurationMinutes Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -206,8 +232,17 @@ model Payment {
   orderId        String        @unique
   amount         Float
   status         String        @default("PENDING")
+  provider       String        @default("MANUAL")
   paymentStage   String        @default("PENDING") // PENDING, ACKNOWLEDGED, COMPLETED
   receiptImgUrl  String?
+  providerOrderId String?      @unique
+  providerPaymentId String?    @unique
+  providerSignature String?
+  webhookEventId String?       @unique
+  webhookPayload String?       @db.Text
+  lastError      String?       @db.Text
+  webhookReceivedAt DateTime?
+  capturedAt     DateTime?
   transactionId  String?
   waiterVerified Boolean       @default(false)
   acknowledgedAt DateTime?

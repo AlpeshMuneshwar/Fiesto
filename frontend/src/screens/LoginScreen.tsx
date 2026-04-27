@@ -75,13 +75,13 @@ export default function LoginScreen({ navigation, route }: any) {
     const [showingVerification, setShowingVerification] = useState(false);
 
     const isCustomerMode = route.params?.loginMode === 'customer';
-    const title = showingVerification ? 'Verify your email' : isCustomerMode ? 'Client Login' : 'Staff Login';
-    const badge = showingVerification ? 'ACCOUNT VERIFICATION' : isCustomerMode ? 'CLIENT ACCESS' : 'STAFF ACCESS';
+    const title = showingVerification ? 'Verify your email' : isCustomerMode ? 'Customer Login' : 'Client / Staff Login';
+    const badge = showingVerification ? 'ACCOUNT VERIFICATION' : isCustomerMode ? 'CUSTOMER ACCESS' : 'CLIENT / STAFF ACCESS';
     const subtitle = showingVerification
         ? `We sent a verification code to ${email || 'your email address'}. Enter it below to activate the account.`
         : isCustomerMode
-            ? 'Use a cleaner login flow for bookings, cafe discovery, and account continuity.'
-            : 'Access waiter, chef, admin, and super admin dashboards from one structured workspace.';
+            ? 'For diners using discovery, bookings, and takeaway tracking.'
+            : 'For cafe owners, admins, waiters, chefs, and super admin accounts.';
 
     const accessNotes = showingVerification
         ? [
@@ -91,8 +91,8 @@ export default function LoginScreen({ navigation, route }: any) {
         ]
         : isCustomerMode
             ? [
-                'Password and OTP login work only for existing client accounts.',
-                'If you are new, create a client account first and verify your email.',
+                'Password and OTP login work only for existing customer accounts.',
+                'If you are new, create a customer account first and verify your email.',
                 'Use Scan Table if you are joining directly from a cafe QR code.',
             ]
             : [
@@ -103,10 +103,10 @@ export default function LoginScreen({ navigation, route }: any) {
 
     const featureNotes = isCustomerMode
         ? [
-            'Manage bookings and return visits faster.',
-            'Browse cafes and continue your dining flow.',
-            'Use password or OTP after your account has been created and verified.',
-        ]
+                'Manage bookings and return visits.',
+                'Browse cafes and continue your dining flow.',
+                'Use password or OTP after your account has been created and verified.',
+            ]
         : [
             'Open operational dashboards from one entry point.',
             'Keep kitchen, waiter, and admin access in sync.',
@@ -222,7 +222,7 @@ export default function LoginScreen({ navigation, route }: any) {
             data = await loginOtpAction({ email, otp, purpose: 'LOGIN' });
         } else {
             data = await login({ email, password });
-            if (!data && loginError?.response?.data?.needsVerification) {
+            if (!data && loginError?.code === 'EMAIL_NOT_VERIFIED') {
                 setShowingVerification(true);
                 return;
             }
@@ -262,16 +262,14 @@ export default function LoginScreen({ navigation, route }: any) {
             : loginError;
 
     const errorMessage = activeError
-        ? activeError.response?.data?.error ||
-          (!activeError.response ? 'Unable to reach the server. Please make sure the backend is running and try again.' : activeError.message) ||
-          'Login failed'
+        ? activeError.message || 'Login failed'
         : null;
     const otpTimingNote = isOtpCooldownActive
         ? `You can request another code in ${otpCooldownSeconds}s.`
         : 'You can request a new code every 60 seconds.';
     const otpEligibilityNote = isCustomerMode
-        ? 'OTP login is only for existing client accounts. If you are new, create the account first.'
-        : 'OTP login is only for staff accounts already created by the admin.';
+        ? 'OTP login is only for existing customer accounts. If you are new, create the account first.'
+        : 'OTP login is for existing client/staff accounts already created by the cafe admin.';
 
     return (
         <View style={styles.screen}>
@@ -312,6 +310,21 @@ export default function LoginScreen({ navigation, route }: any) {
                                 <View style={styles.formPanel}>
                                     {!showingVerification ? (
                                         <>
+                                            <View style={styles.modeSwitcher}>
+                                                <TouchableOpacity
+                                                    style={[styles.modeTab, isCustomerMode && styles.modeTabActive]}
+                                                    onPress={() => navigation.replace('Login', { loginMode: 'customer' })}
+                                                >
+                                                    <Text style={[styles.modeTabText, isCustomerMode && styles.modeTabTextActive]}>Customer</Text>
+                                                </TouchableOpacity>
+                                                <TouchableOpacity
+                                                    style={[styles.modeTab, !isCustomerMode && styles.modeTabActive]}
+                                                    onPress={() => navigation.replace('Login', { loginMode: 'staff' })}
+                                                >
+                                                    <Text style={[styles.modeTabText, !isCustomerMode && styles.modeTabTextActive]}>Client / Staff</Text>
+                                                </TouchableOpacity>
+                                            </View>
+
                                             <View style={styles.switcher}>
                                                 <TouchableOpacity style={[styles.switchTab, !isOtpMode && styles.switchTabActive]} onPress={() => setIsOtpMode(false)}>
                                                     <Text style={[styles.switchTabText, !isOtpMode && styles.switchTabTextActive]}>Password</Text>
@@ -321,7 +334,7 @@ export default function LoginScreen({ navigation, route }: any) {
                                                 </TouchableOpacity>
                                             </View>
 
-                                            {errorMessage && !activeError?.response?.data?.needsVerification ? (
+                                            {errorMessage && activeError?.code !== 'EMAIL_NOT_VERIFIED' ? (
                                                 <View style={styles.errorBox}>
                                                     <Text style={styles.errorText}>{errorMessage}</Text>
                                                 </View>
@@ -397,11 +410,16 @@ export default function LoginScreen({ navigation, route }: any) {
                                             </TouchableOpacity>
 
                                             <TouchableOpacity style={styles.linkBlock} onPress={() => navigation.navigate('ScanTable')}>
-                                                <Text style={styles.linkBlockText}>{isCustomerMode ? 'Joining from a table QR? Go to Scan Table' : 'Need the QR or customer flow? Go to Scan Table'}</Text>
+                                                <Text style={styles.linkBlockText}>{isCustomerMode ? 'Joining from a table QR? Go to Scan Table' : 'Need customer QR flow? Go to Scan Table'}</Text>
                                             </TouchableOpacity>
 
-                                            <TouchableOpacity style={styles.linkBlock} onPress={() => navigation.navigate('Register')}>
-                                                <Text style={styles.linkBlockText}>{isCustomerMode ? 'New here? Create your account first' : 'Need a client account? Create one'}</Text>
+                                            <TouchableOpacity
+                                                style={styles.linkBlock}
+                                                onPress={() => isCustomerMode ? navigation.navigate('Register') : navigation.navigate('CafeRegistration')}
+                                            >
+                                                <Text style={styles.linkBlockText}>
+                                                    {isCustomerMode ? 'New customer? Create customer account' : 'Need client account? Register your cafe'}
+                                                </Text>
                                             </TouchableOpacity>
                                         </>
                                     ) : (
@@ -468,6 +486,11 @@ const styles = StyleSheet.create({
     panel: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D7DEE7', borderTopWidth: 4, borderTopColor: '#FF6B35', padding: 22, marginBottom: 20, width: '100%', maxWidth: '100%' },
     formPanel: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D7DEE7', borderTopWidth: 4, borderTopColor: '#0F172A', padding: 24, width: '100%', maxWidth: '100%' },
     panelLabel: { color: '#94A3B8', fontSize: 12, fontWeight: '800', letterSpacing: 1.1, marginBottom: 10 },
+    modeSwitcher: { flexDirection: 'row', marginBottom: 14 },
+    modeTab: { flex: 1, borderWidth: 1, borderColor: '#D7DEE7', paddingVertical: 12, alignItems: 'center', backgroundColor: '#FFFFFF', marginRight: 10 },
+    modeTabActive: { borderColor: '#0F172A', backgroundColor: '#EEF2FF' },
+    modeTabText: { color: '#64748B', fontSize: 13, fontWeight: '800' },
+    modeTabTextActive: { color: '#0F172A' },
     listRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 14 },
     rowBorder: { borderBottomWidth: 1, borderBottomColor: '#E5E7EB' },
     listIndex: { width: 42, borderWidth: 1, borderColor: '#0F172A', paddingVertical: 8, textAlign: 'center', color: '#0F172A', fontSize: 12, fontWeight: '900', marginRight: 14 },

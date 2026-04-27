@@ -48,6 +48,7 @@ export default function CustomerMenuScreen({ route, navigation }: any) {
     const [joinCode, setJoinCode] = useState('');
     const [isLocked, setIsLocked] = useState(false);
     const [showJoinModal, setShowJoinModal] = useState(false);
+    const [isReservationEntry, setIsReservationEntry] = useState(false);
     const [finalBill, setFinalBill] = useState<any>(null);
     const [history, setHistory] = useState<any[]>([]);
     const [sessionOrdersVisible, setSessionOrdersVisible] = useState(false);
@@ -167,6 +168,17 @@ export default function CustomerMenuScreen({ route, navigation }: any) {
             if (res.data.status === 'LOCKED') {
                 setIsLocked(true);
                 setSessionId(res.data.sessionId);
+                setIsReservationEntry(false);
+                setJoinCode('');
+                setShowJoinModal(true);
+                return;
+            }
+
+            if (res.data.status === 'RESERVATION_READY') {
+                setIsLocked(true);
+                setSessionId(res.data.sessionId);
+                setIsReservationEntry(true);
+                setJoinCode('');
                 setShowJoinModal(true);
                 return;
             }
@@ -175,6 +187,7 @@ export default function CustomerMenuScreen({ route, navigation }: any) {
                 const sid = res.data.session.id;
                 setSessionId(sid);
                 setIsLocked(false);
+                setIsReservationEntry(false);
                 setShowJoinModal(false);
                 AsyncStorage.setItem('active_session_id', sid);
             }
@@ -193,6 +206,10 @@ export default function CustomerMenuScreen({ route, navigation }: any) {
             // Explicitly handle the "join code required" requirement
             if (error.response?.status === 400 && error.response.data?.requiresJoinCode) {
                 setIsLocked(false);
+                setIsReservationEntry(Boolean(error.response.data?.isReservationEntry));
+                if (error.response.data?.sessionId) {
+                    setSessionId(error.response.data.sessionId);
+                }
                 setShowJoinModal(true);
             } else {
                 const msg = error.response?.data?.error || error.response?.data?.details?.[0]?.message || error.message || 'Could not open table session.';
@@ -218,6 +235,7 @@ export default function CustomerMenuScreen({ route, navigation }: any) {
                 const sid = res.data.session.id;
                 setSessionId(sid);
                 setShowJoinModal(false);
+                setIsReservationEntry(false);
                 AsyncStorage.setItem('active_session_id', sid);
             } catch (e: any) {
                 const errorMsg = e.response?.data?.details?.[0]?.message || e.response?.data?.error || 'Invalid code';
@@ -911,20 +929,26 @@ export default function CustomerMenuScreen({ route, navigation }: any) {
                     <View style={styles.modalContent}>
                         <Text style={styles.modalTitle}>{isLocked ? 'Enter Table PIN' : 'Secure Your Table'}</Text>
                         <Text style={styles.modalDesc}>
-                            {isLocked ? 'Ask the person who scanned first for the PIN.' : 'Set a 4-digit PIN so others can join your table session.'}
+                            {isReservationEntry
+                                ? 'This table is reserved. Enter your booking code to unlock the reserved session.'
+                                : isLocked
+                                    ? 'Ask the person who scanned first for the PIN.'
+                                    : 'Set a 4-digit PIN so others can join your table session.'}
                         </Text>
                         <TextInput
                             style={styles.modalInputLarge}
-                            placeholder="PIN (4-Digits)"
+                            placeholder={isReservationEntry ? 'Booking Code' : 'PIN (4-Digits)'}
                             keyboardType="number-pad"
-                            maxLength={4}
+                            maxLength={isReservationEntry ? 8 : 4}
                             value={joinCode}
                             onChangeText={setJoinCode}
                         />
                         <TouchableOpacity style={styles.modalBtn} onPress={handleJoinWithCode}>
-                            <Text style={styles.modalBtnText}>{isLocked ? 'Join Session' : 'Set PIN & Start'}</Text>
+                            <Text style={styles.modalBtnText}>
+                                {isReservationEntry ? 'Unlock Reservation' : isLocked ? 'Join Session' : 'Set PIN & Start'}
+                            </Text>
                         </TouchableOpacity>
-                        {isLocked && (
+                        {isLocked && !isReservationEntry && (
                             <TouchableOpacity onPress={handleForgotCode} style={{ marginTop: 15 }}>
                                 <Text style={{ color: '#E23744', fontWeight: 'bold' }}>Forgot PIN? Ask Waiter</Text>
                             </TouchableOpacity>

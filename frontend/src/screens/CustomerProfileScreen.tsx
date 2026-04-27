@@ -43,8 +43,18 @@ export default function CustomerProfileScreen({ navigation }: any) {
         navigation.replace('Landing');
     };
 
-    const activeBookings = bookings.filter(b => b.isActive && b.isPrebooked);
-    const historyBookings = bookings.filter(b => !b.isActive);
+    const handleCancel = async (sessionId: string) => {
+        try {
+            await client.post(`/customer/bookings/${sessionId}/cancel`);
+            Alert.alert('Success', 'Booking cancelled successfully');
+            loadData();
+        } catch (error: any) {
+            Alert.alert('Error', error.response?.data?.error || 'Failed to cancel booking');
+        }
+    };
+
+    const activeBookings = bookings.filter((b) => ['QUEUED', 'READY_FOR_CHECKIN', 'CHECKED_IN', 'ACTIVE'].includes(b.reservationStatus));
+    const historyBookings = bookings.filter((b) => b.reservationStatus === 'COMPLETED');
 
     const renderBookingCard = (booking: any) => (
         <TouchableOpacity 
@@ -53,7 +63,7 @@ export default function CustomerProfileScreen({ navigation }: any) {
             activeOpacity={0.8}
             onPress={() => {
                 // For history, show receipt or details
-                if (!booking.isActive) {
+                if (booking.reservationStatus === 'COMPLETED') {
                     navigation.navigate('CustomerMenu', { 
                         cafeId: booking.cafeId, 
                         sessionId: booking.id, 
@@ -70,9 +80,9 @@ export default function CustomerProfileScreen({ navigation }: any) {
                         <Text style={styles.metaText}>{booking.cafe.address || 'Local Eatery'}</Text>
                     </View>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: booking.isActive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(148, 163, 184, 0.1)' }]}>
-                    <Text style={[styles.statusText, { color: booking.isActive ? '#10B981' : '#94A3B8' }]}>
-                        {booking.isActive ? 'ACTIVE' : 'COMPLETED'}
+                <View style={[styles.statusBadge, getStatusBadgeStyle(booking.reservationStatus)]}>
+                    <Text style={[styles.statusText, getStatusTextStyle(booking.reservationStatus)]}>
+                        {formatReservationStatus(booking.reservationStatus)}
                     </Text>
                 </View>
             </View>
@@ -81,23 +91,54 @@ export default function CustomerProfileScreen({ navigation }: any) {
                 <View style={styles.row}>
                     <View style={styles.dataCol}>
                         <Text style={styles.dataLabel}>Date</Text>
-                        <Text style={styles.dataValue}>{new Date(booking.createdAt).toLocaleDateString()}</Text>
+                        <Text style={styles.dataValue}>{new Date(booking.scheduledAt || booking.createdAt).toLocaleDateString()}</Text>
                     </View>
                     <View style={styles.dataCol}>
                         <Text style={styles.dataLabel}>Table</Text>
-                        <Text style={styles.dataValue}>T-{booking.table.number}</Text>
+                        <Text style={styles.dataValue}>T-{booking.table?.number || '--'}</Text>
                     </View>
                 </View>
 
-                {booking.isActive && (
+                {booking.reservationStatus !== 'COMPLETED' && (
                     <View style={styles.codeRow}>
                         <Hash color="#38BDF8" size={16} />
-                        <Text style={styles.codeLabel}>SESSION CODE:</Text>
+                        <Text style={styles.codeLabel}>{booking.reservationStatus === 'QUEUED' ? 'BOOKING CODE:' : 'SESSION CODE:'}</Text>
                         <Text style={styles.codeValue}>{booking.joinCode}</Text>
                     </View>
                 )}
 
-                {booking.orders.length > 0 && !booking.isActive && (
+                {booking.reservationStatus === 'QUEUED' && (
+                    <>
+                        <View style={styles.orderSummary}>
+                            <Clock color="#F59E0B" size={14} />
+                            <Text style={styles.summaryText}>
+                                Queued for {new Date(booking.scheduledAt || booking.createdAt).toLocaleString()}. Scan the QR later and enter this code.
+                            </Text>
+                        </View>
+                        <TouchableOpacity 
+                            style={{ marginTop: 15, backgroundColor: 'rgba(239, 68, 68, 0.1)', paddingVertical: 10, borderRadius: 10, alignItems: 'center' }}
+                            onPress={() => {
+                                Alert.alert('Cancel Booking', 'Are you sure you want to cancel this booking?', [
+                                    { text: 'No', style: 'cancel' },
+                                    { text: 'Yes, Cancel', style: 'destructive', onPress: () => handleCancel(booking.id) }
+                                ]);
+                            }}
+                        >
+                            <Text style={{ color: '#F87171', fontWeight: 'bold' }}>Cancel Booking</Text>
+                        </TouchableOpacity>
+                    </>
+                )}
+
+                {booking.reservationStatus === 'READY_FOR_CHECKIN' && (
+                    <View style={styles.orderSummary}>
+                        <Calendar color="#38BDF8" size={14} />
+                        <Text style={styles.summaryText}>
+                            Your reserved table is now ready. Scan the QR and enter this code to check in.
+                        </Text>
+                    </View>
+                )}
+
+                {booking.orders.length > 0 && booking.reservationStatus === 'COMPLETED' && (
                     <View style={styles.orderSummary}>
                         <FileText color="#94A3B8" size={14} />
                         <Text style={styles.summaryText}>
@@ -249,3 +290,41 @@ const styles = StyleSheet.create({
     ctaBtn: { backgroundColor: '#38BDF8', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
     ctaBtnText: { color: '#0F172A', fontWeight: '800' }
 });
+
+function formatReservationStatus(status: string) {
+    switch (status) {
+        case 'QUEUED': return 'QUEUED';
+        case 'READY_FOR_CHECKIN': return 'READY';
+        case 'CHECKED_IN': return 'CHECKED IN';
+        case 'ACTIVE': return 'ACTIVE';
+        default: return 'COMPLETED';
+    }
+}
+
+function getStatusBadgeStyle(status: string) {
+    switch (status) {
+        case 'QUEUED':
+            return { backgroundColor: 'rgba(245, 158, 11, 0.12)' };
+        case 'READY_FOR_CHECKIN':
+            return { backgroundColor: 'rgba(56, 189, 248, 0.14)' };
+        case 'CHECKED_IN':
+        case 'ACTIVE':
+            return { backgroundColor: 'rgba(16, 185, 129, 0.1)' };
+        default:
+            return { backgroundColor: 'rgba(148, 163, 184, 0.1)' };
+    }
+}
+
+function getStatusTextStyle(status: string) {
+    switch (status) {
+        case 'QUEUED':
+            return { color: '#F59E0B' };
+        case 'READY_FOR_CHECKIN':
+            return { color: '#38BDF8' };
+        case 'CHECKED_IN':
+        case 'ACTIVE':
+            return { color: '#10B981' };
+        default:
+            return { color: '#94A3B8' };
+    }
+}

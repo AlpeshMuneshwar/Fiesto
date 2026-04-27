@@ -2,6 +2,7 @@ import { prisma } from '../prisma';
 
 export type ActivityAction = 
   | 'SESSION_START' 
+  | 'QUEUE_JOIN'
   | 'SESSION_CLOSE' 
   | 'ORDER_PLACED' 
   | 'ORDER_APPROVED' 

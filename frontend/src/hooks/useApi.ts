@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { AxiosResponse } from 'axios';
+import { normalizeApiError, NormalizedApiError } from '../utils/api-error';
 
 interface UseApiOptions<T> {
     onSuccess?: (data: T) => void;
@@ -8,7 +9,7 @@ interface UseApiOptions<T> {
 
 interface UseApiResult<T> {
     loading: boolean;
-    error: any;
+    error: NormalizedApiError | null;
     data: T | null;
     execute: (...args: any[]) => Promise<T | null>;
     reset: () => void;
@@ -27,7 +28,7 @@ export function useApi<T>(
     options: UseApiOptions<T> = {}
 ): UseApiResult<T> {
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<any>(null);
+    const [error, setError] = useState<NormalizedApiError | null>(null);
     const [data, setData] = useState<T | null>(null);
     
     // Use refs to avoid unnecessary re-creations of 'execute'
@@ -55,9 +56,10 @@ export function useApi<T>(
             }
             return response.data;
         } catch (err: any) {
-            setError(err);
+            const normalizedError = err?.normalizedError || normalizeApiError(err);
+            setError(normalizedError);
             if (optionsRef.current.onError) {
-                optionsRef.current.onError(err);
+                optionsRef.current.onError(normalizedError);
             }
             return null;
         } finally {

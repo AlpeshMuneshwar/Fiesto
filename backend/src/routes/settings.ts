@@ -76,6 +76,11 @@ router.get('/public/:cafeId', async (req: any, res: Response) => {
             menuImagesEnabled: settings.menuImagesEnabled,
             currency: settings.currency,
             currencySymbol: settings.currencySymbol,
+            reservationsEnabled: settings.reservationsEnabled,
+            platformFeeAmount: settings.platformFeeAmount,
+            preOrderAdvanceRate: settings.preOrderAdvanceRate,
+            businessOpenTime: (settings as any).businessOpenTime || null,
+            businessCloseTime: (settings as any).businessCloseTime || null,
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch settings' });
