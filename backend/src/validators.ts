@@ -17,6 +17,12 @@ const emailSchema = z
     .max(255, 'Email too long')
     .transform((v) => v.toLowerCase().trim());
 
+const phoneSchema = z
+    .string()
+    .min(7, 'Phone number is too short')
+    .max(20, 'Phone number is too long')
+    .regex(/^\+?[0-9][0-9\s()-]{6,19}$/, 'Enter a valid phone number');
+
 const uuidSchema = z.string().uuid('Invalid ID format');
 
 const slugSchema = z
@@ -38,13 +44,14 @@ export const registerSchema = z.object({
     name: z.string().min(1, 'Name is required').max(100),
     email: emailSchema,
     password: passwordSchema,
-    role: z.enum(['WAITER', 'CHEF', 'ADMIN', 'SUPER_ADMIN']).optional().default('WAITER'),
+    role: z.enum(['WAITER', 'CHEF', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']).optional().default('WAITER'),
     cafeId: z.string().optional(),
 });
 
 export const customerRegisterSchema = z.object({
     name: z.string().min(1, 'Name is required').max(100),
     email: emailSchema,
+    phoneNumber: phoneSchema,
     password: passwordSchema,
 });
 
@@ -135,6 +142,17 @@ export const orderStatusSchema = z.object({
 
 export const orderApprovalSchema = z.object({
     approve: z.boolean(),
+    tableId: z.string().uuid('Valid Table ID required').optional(),
+    scheduledAt: z.string().datetime().optional(),
+    bookingDurationMinutes: z.number().int().min(20).max(180).optional(),
+});
+
+export const customerOrderEditSchema = z.object({
+    items: z.array(orderItemSchema.pick({ id: true }).extend({
+        id: z.string().min(1, 'Item ID is required'),
+        quantity: z.number().int().positive().max(100, 'Max 100 per item'),
+    })).min(1, 'At least one item required').max(50, 'Max 50 items per order'),
+    specialInstructions: z.string().max(500, 'Instructions too long').optional().nullable(),
 });
 
 // ==========================================
@@ -207,21 +225,22 @@ export const staffSchema = z.object({
     name: z.string().min(1, 'Name is required').max(100),
     email: emailSchema,
     password: passwordSchema,
-    role: z.enum(['WAITER', 'CHEF'], {
-        message: 'Role must be WAITER or CHEF',
+    role: z.enum(['WAITER', 'CHEF', 'MANAGER'], {
+        message: 'Role must be WAITER, CHEF, or MANAGER',
     }),
 });
 
 export const staffUpdateSchema = z.object({
     name: z.string().min(1, 'Name is required').max(100).optional(),
     email: emailSchema.optional(),
-    role: z.enum(['WAITER', 'CHEF']).optional(),
+    role: z.enum(['WAITER', 'CHEF', 'MANAGER']).optional(),
     isActive: z.boolean().optional(),
 });
 
 export const profileUpdateSchema = z.object({
     name: z.string().min(1).max(100).optional(),
     address: z.string().max(500).optional(),
+    contactPhone: phoneSchema.optional().nullable(),
     logoUrl: z.string().url().optional().nullable(),
     coverImage: z.string().url().optional().nullable(),
     galleryImages: z.string().optional().nullable(),
@@ -229,10 +248,18 @@ export const profileUpdateSchema = z.object({
 
 export const discoveryProfileSchema = z.object({
     city: z.string().min(2).max(100),
+    contactPhone: phoneSchema.optional().nullable(),
+    googleMapsUrl: z.string().url().max(2048).optional().nullable(),
     latitude: z.number().min(-90).max(90).nullable().optional(),
     longitude: z.number().min(-180).max(180).nullable().optional(),
     isFeatured: z.boolean().optional(),
     featuredPriority: z.number().int().min(0).max(1000).optional(),
+    clearCoordinates: z.boolean().optional(),
+    clearCoverImage: z.boolean().optional(),
+    coverImage: z.string().url().optional().nullable(),
+    galleryImages: z.string().optional().nullable(),
+    legacyGalleryImages: z.array(z.string().url()).optional(),
+    removeGalleryAssetIds: z.array(z.string().uuid()).optional(),
 });
 
 export const categoryToggleSchema = z.object({
@@ -247,6 +274,10 @@ export const cafeSettingsSchema = z.object({
     paymentMode: z.enum(['WAITER_AT_TABLE', 'PAY_AT_COUNTER', 'BOTH'], {
         message: 'Payment mode must be WAITER_AT_TABLE, PAY_AT_COUNTER, or BOTH',
     }).optional(),
+    orderRoutingMode: z.enum(['STANDARD', 'DIRECT_ADMIN_MANAGEMENT'], {
+        message: 'Order routing mode must be STANDARD or DIRECT_ADMIN_MANAGEMENT',
+    }).optional(),
+    directAdminChefAppEnabled: z.boolean().optional(),
     taxEnabled: z.boolean().optional(),
     taxRate: z.number().min(0).max(100).optional(),
     taxLabel: z.string().max(20).optional(),
@@ -267,6 +298,7 @@ export const cafeSettingsSchema = z.object({
     reservationsEnabled: z.boolean().optional(),
     platformFeeAmount: z.number().min(0).max(10000).optional(),
     preOrderAdvanceRate: z.number().min(0).max(100).optional(),
+    preorderPaymentWindowMinutes: z.number().int().min(10).max(240).optional(),
     businessOpenTime: z.string().regex(/^\d{2}:\d{2}$/, 'Business open time must be HH:mm').optional().nullable(),
     businessCloseTime: z.string().regex(/^\d{2}:\d{2}$/, 'Business close time must be HH:mm').optional().nullable(),
 });

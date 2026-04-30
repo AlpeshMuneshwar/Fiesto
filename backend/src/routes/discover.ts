@@ -4,6 +4,8 @@ import { io } from '../socket';
 import { notifyStaffByRole } from '../push';
 import { isWithinBusinessHours, getBusinessHourMessage } from '../utils/business-hours';
 import { validate, nearbyCafeRequestSchema } from '../validators';
+import { resolveAuthUserFromRequest } from '../middleware/auth';
+import { getRequestBaseUrl, resolveDiscoveryMedia } from '../utils/discovery-media';
 import {
     computeAssignedSlot,
     DEFAULT_SESSION_MINUTES,
@@ -11,12 +13,19 @@ import {
     getSessionStart,
     normalizeSlotMinutes,
 } from '../utils/reservation-queue';
+import {
+    DEFAULT_PREORDER_PAYMENT_WINDOW_MINUTES,
+    platformReservationDefaults,
+} from '../config/reservation-defaults';
+import { BLOCKING_BOOKING_ORDER_STATUSES, isStillBlockingBooking } from '../utils/booking-blocker';
+import { normalizePhoneNumber } from '../utils/phone';
 
 const router = Router();
 const TAKEAWAY_ACTIVE_STATUSES = ['PENDING_APPROVAL', 'RECEIVED', 'PREPARING', 'READY'];
 
 const addMinutes = (date: Date, minutes: number) => new Date(date.getTime() + minutes * 60 * 1000);
 const DEFAULT_RADIUS_KM = 20;
+const PAYMENT_WINDOW_TEXT = `${DEFAULT_PREORDER_PAYMENT_WINDOW_MINUTES} minutes`;
 
 interface DiscoverSessionSnapshot {
     id: string;
@@ -52,6 +61,94 @@ const parseDateInput = (value: unknown, fallback: Date) => {
 const toNumber = (value: unknown) => {
     const num = Number(value);
     return Number.isFinite(num) ? num : null;
+};
+
+const normalizeCityToken = (value: string | null | undefined) => {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+};
+
+const cityMatches = (cafeCity: string | null | undefined, filter: string) => {
+    const normalizedCafeCity = normalizeCityToken(cafeCity);
+    const normalizedFilter = normalizeCityToken(filter);
+    if (!normalizedCafeCity || !normalizedFilter) {
+        return false;
+    }
+
+    return normalizedCafeCity === normalizedFilter
+        || normalizedCafeCity.includes(normalizedFilter)
+        || normalizedFilter.includes(normalizedCafeCity);
+};
+
+const findOrCreateDiscoveryCustomer = async (params: {
+    customerEmail: string;
+    customerName: string;
+    customerPhone: string;
+    authenticatedCustomerId?: string | null;
+}) => {
+    const name = params.customerName.trim();
+    const phoneNumber = normalizePhoneNumber(params.customerPhone);
+    const email = params.customerEmail.trim().toLowerCase();
+
+    if (params.authenticatedCustomerId) {
+        const customer = await prisma.user.findFirst({
+            where: {
+                id: params.authenticatedCustomerId,
+                role: 'CUSTOMER',
+            },
+        });
+
+        if (!customer) {
+            throw new Error('Authenticated customer account was not found.');
+        }
+
+        if (customer.name !== name || (customer as any).phoneNumber !== phoneNumber) {
+            return prisma.user.update({
+                where: { id: customer.id },
+                data: {
+                    name,
+                    phoneNumber,
+                    updatedBy: customer.id,
+                } as any,
+            });
+        }
+
+        return customer;
+    }
+
+    let customer = await prisma.user.findFirst({
+        where: { email, role: 'CUSTOMER' },
+    });
+
+    if (!customer) {
+        return prisma.user.create({
+            data: {
+                name,
+                email,
+                phoneNumber,
+                password: `GUEST_PWD_${Math.random().toString(36).substring(7)}`,
+                role: 'CUSTOMER',
+                isEmailVerified: false,
+                createdBy: 'DISCOVERY_APP',
+                updatedBy: 'DISCOVERY_APP',
+            } as any,
+        });
+    }
+
+    if (customer.name !== name || (customer as any).phoneNumber !== phoneNumber) {
+        customer = await prisma.user.update({
+            where: { id: customer.id },
+            data: {
+                name,
+                phoneNumber,
+                updatedBy: customer.id,
+            } as any,
+        });
+    }
+
+    return customer;
 };
 
 const haversineDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -103,6 +200,72 @@ const mapQueueStatus = (session: { isActive: boolean; deviceIdentifier?: string 
     return 'QUEUED';
 };
 
+const findBlockingBookingForCustomer = async (params: { customerId: string; cafeId: string }) => {
+    const candidateOrders = await prisma.order.findMany({
+        where: {
+            cafeId: params.cafeId,
+            orderType: { in: ['PRE_ORDER', 'TAKEAWAY'] },
+            status: { in: BLOCKING_BOOKING_ORDER_STATUSES },
+            session: { customerId: params.customerId },
+        },
+        include: {
+            session: {
+                select: {
+                    id: true,
+                    isActive: true,
+                    isPrebooked: true,
+                    deviceIdentifier: true,
+                    joinCode: true,
+                    scheduledAt: true,
+                    slotDurationMinutes: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    table: { select: { number: true } },
+                },
+            },
+            payment: {
+                select: { status: true },
+            },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 12,
+    }) as any[];
+
+    return candidateOrders.find((order) => isStillBlockingBooking(order)) || null;
+};
+
+router.get('/media/:assetId', async (req: Request, res: Response) => {
+    try {
+        const assetId = String(req.params.assetId || '');
+        if (!assetId) {
+            res.status(400).json({ error: 'Asset ID is required.' });
+            return;
+        }
+
+        const asset = await prisma.cafeDiscoveryAsset.findUnique({
+            where: { id: assetId },
+            select: {
+                data: true,
+                mimeType: true,
+                updatedAt: true,
+            },
+        });
+
+        if (!asset) {
+            res.status(404).json({ error: 'Image not found.' });
+            return;
+        }
+
+        res.setHeader('Content-Type', asset.mimeType || 'image/webp');
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('Last-Modified', asset.updatedAt.toUTCString());
+        res.send(Buffer.from(asset.data));
+    } catch (error) {
+        console.error('Discover Media Error:', error);
+        res.status(500).json({ error: 'Failed to load image.' });
+    }
+});
+
 // GET /api/discover/cafes?lat=&lng=&city=&radius=
 router.get('/cafes', async (req: Request, res: Response) => {
     try {
@@ -111,15 +274,32 @@ router.get('/cafes', async (req: Request, res: Response) => {
         const cityFilter = typeof req.query.city === 'string' ? req.query.city.trim().toLowerCase() : '';
         const radiusKm = Math.max(1, Math.min(100, toNumber(req.query.radius) || DEFAULT_RADIUS_KM));
 
+        if (!platformReservationDefaults.reservationsEnabled) {
+            res.json({
+                city: cityFilter || null,
+                radiusKm,
+                hasUserLocation: userLat !== null && userLng !== null,
+                featuredCafes: [],
+                nearbyCafes: [],
+                allCafesCount: 0,
+            });
+            return;
+        }
+
         const cafes: any[] = await prisma.cafe.findMany({
             where: {
                 isActive: true,
-                settings: {
-                    reservationsEnabled: true,
-                },
             },
             include: {
                 settings: true,
+                discoveryAssets: {
+                    select: {
+                        id: true,
+                        kind: true,
+                        sortOrder: true,
+                        createdAt: true,
+                    },
+                },
                 menuItems: {
                     where: { isActive: true },
                     take: 20,
@@ -172,7 +352,13 @@ router.get('/cafes', async (req: Request, res: Response) => {
             if (avgPrice < 200) priceLevel = '$';
             else if (avgPrice > 800) priceLevel = '$$$';
 
-            const featuredImage = cafe.menuItems.find((m: any) => m.imageUrl)?.imageUrl || null;
+            const discoveryMedia = resolveDiscoveryMedia(cafe, req);
+            const menuFeatureImage = cafe.menuItems.find((m: any) => m.imageUrl)?.imageUrl || null;
+            const featuredImage = discoveryMedia.coverImage || (
+                menuFeatureImage
+                    ? (menuFeatureImage.startsWith('http') ? menuFeatureImage : `${getRequestBaseUrl(req)}${menuFeatureImage}`)
+                    : null
+            );
 
             const totalCapacity = cafe.tables.reduce((sum: number, table: any) => sum + table.capacity, 0);
             const availableCapacity = availableTables * 4;
@@ -184,9 +370,10 @@ router.get('/cafes', async (req: Request, res: Response) => {
                 id: cafe.id,
                 name: cafe.name,
                 address: cafe.address,
+                contactPhone: cafe.contactPhone || null,
                 logoUrl: cafe.logoUrl,
-                coverImage: cafe.coverImage,
-                galleryImages: cafe.galleryImages,
+                coverImage: discoveryMedia.coverImage,
+                galleryImages: discoveryMedia.galleryImages,
                 city: cafe.city || null,
                 latitude: cafe.latitude ?? null,
                 longitude: cafe.longitude ?? null,
@@ -215,8 +402,8 @@ router.get('/cafes', async (req: Request, res: Response) => {
                 settings: {
                     currencySymbol: cafe.settings?.currencySymbol || 'Rs.',
                     avgPrepTimeMinutes: cafe.settings?.avgPrepTimeMinutes || 15,
-                    platformFeeAmount: cafe.settings?.platformFeeAmount || 10.0,
-                    preOrderAdvanceRate: cafe.settings?.preOrderAdvanceRate || 40.0,
+                    platformFeeAmount: platformReservationDefaults.platformFeeAmount,
+                    preOrderAdvanceRate: platformReservationDefaults.preOrderAdvanceRate,
                 },
             };
         }));
@@ -237,10 +424,11 @@ router.get('/cafes', async (req: Request, res: Response) => {
             });
 
         const cityMatched = cityFilter
-            ? enriched.filter((cafe) => (cafe.city || '').toLowerCase() === cityFilter)
+            ? enriched.filter((cafe) => cityMatches(cafe.city, cityFilter))
             : enriched;
 
-        const featuredCafes = cityMatched
+        const featuredSource = cityMatched.length > 0 ? cityMatched : enriched;
+        const featuredCafes = featuredSource
             .filter((cafe) => cafe.isFeatured)
             .sort((a, b) => {
                 const featuredRank = (a.featuredPriority || 0) - (b.featuredPriority || 0);
@@ -252,9 +440,17 @@ router.get('/cafes', async (req: Request, res: Response) => {
             })
             .slice(0, 12);
 
-        const nearbyCafes = cityMatched
-            .filter((cafe) => (cafe.distanceKm === null ? true : cafe.distanceKm <= radiusKm))
-            .slice(0, 40);
+        const nearbyDistanceMatched = userLat !== null && userLng !== null
+            ? enriched.filter((cafe) => cafe.distanceKm !== null && cafe.distanceKm <= radiusKm)
+            : [];
+
+        const nearbySource = userLat !== null && userLng !== null
+            ? (nearbyDistanceMatched.length > 0
+                ? nearbyDistanceMatched
+                : (cityMatched.length > 0 ? cityMatched : enriched))
+            : (cityMatched.length > 0 ? cityMatched : enriched);
+
+        const nearbyCafes = nearbySource.slice(0, 40);
 
         res.json({
             city: cityFilter || null,
@@ -316,7 +512,7 @@ router.get('/cafes/:cafeId/tables', async (req: Request, res: Response) => {
             return;
         }
 
-        if (!cafe.settings?.reservationsEnabled) {
+        if (!platformReservationDefaults.reservationsEnabled) {
             res.status(403).json({ error: 'This cafe does not accept reservations.' });
             return;
         }
@@ -426,7 +622,7 @@ router.get('/cafes/:cafeId/daily-tables', async (req: Request, res: Response) =>
             return;
         }
 
-        if (!cafe.settings?.reservationsEnabled) {
+        if (!platformReservationDefaults.reservationsEnabled) {
             res.status(403).json({ error: 'This cafe does not accept reservations.' });
             return;
         }
@@ -494,6 +690,7 @@ router.get('/cafes/:cafeId/daily-tables', async (req: Request, res: Response) =>
 // POST /api/discover/cafes/:cafeId/pre-order
 router.post('/cafes/:cafeId/pre-order', async (req: Request, res: Response) => {
     try {
+        const authUser = await resolveAuthUserFromRequest(req).catch(() => null);
         const cafeId = String(req.params.cafeId || '');
         const {
             tableId,
@@ -504,6 +701,7 @@ router.post('/cafes/:cafeId/pre-order', async (req: Request, res: Response) => {
             specialInstructions,
             customerEmail,
             customerName,
+            customerPhone,
         } = req.body as {
             tableId?: string;
             partySize?: number;
@@ -513,9 +711,10 @@ router.post('/cafes/:cafeId/pre-order', async (req: Request, res: Response) => {
             specialInstructions?: string;
             customerEmail?: string;
             customerName?: string;
+            customerPhone?: string;
         };
 
-        if (!tableId || !partySize || !customerEmail || !customerName) {
+        if (!tableId || !partySize || !customerEmail || !customerName || !customerPhone) {
             res.status(400).json({ error: 'Missing required fields' });
             return;
         }
@@ -531,7 +730,7 @@ router.post('/cafes/:cafeId/pre-order', async (req: Request, res: Response) => {
             include: { settings: true },
         });
 
-        if (!cafe || !cafe.settings?.reservationsEnabled) {
+        if (!cafe || !platformReservationDefaults.reservationsEnabled) {
             res.status(404).json({ error: 'Cafe not found or reservations not enabled' });
             return;
         }
@@ -613,25 +812,34 @@ router.post('/cafes/:cafeId/pre-order', async (req: Request, res: Response) => {
             };
         });
 
-        const advanceRate = cafe.settings?.preOrderAdvanceRate || 40.0;
-        const platformFee = cafe.settings?.platformFeeAmount || 10.0;
+        const advanceRate = platformReservationDefaults.preOrderAdvanceRate;
+        const platformFee = platformReservationDefaults.platformFeeAmount;
         const advancePaid = (subtotal * advanceRate) / 100;
         const totalPaidNow = advancePaid + platformFee;
 
-        let customer = await prisma.user.findFirst({
-            where: { email: customerEmail.trim().toLowerCase(), role: 'CUSTOMER' },
+        const customer = await findOrCreateDiscoveryCustomer({
+            customerEmail,
+            customerName,
+            customerPhone,
+            authenticatedCustomerId: authUser?.role === 'CUSTOMER' ? authUser.id : null,
         });
 
-        if (!customer) {
-            customer = await prisma.user.create({
-                data: {
-                    name: customerName.trim(),
-                    email: customerEmail.trim().toLowerCase(),
-                    password: `GUEST_PWD_${Math.random().toString(36).substring(7)}`,
-                    role: 'CUSTOMER',
-                    isEmailVerified: false,
+        const existingBlocking = await findBlockingBookingForCustomer({ customerId: customer.id, cafeId });
+        if (existingBlocking) {
+            res.status(409).json({
+                error: 'You already have a pending or active booking for this cafe. Complete or cancel it before creating another booking.',
+                code: 'EXISTING_ACTIVE_BOOKING',
+                existingBooking: {
+                    orderId: existingBlocking.id,
+                    orderType: existingBlocking.orderType,
+                    status: existingBlocking.status,
+                    paymentStatus: existingBlocking.payment?.status || null,
+                    scheduledAt: existingBlocking.session?.scheduledAt || existingBlocking.session?.createdAt || null,
+                    joinCode: existingBlocking.session?.joinCode || null,
+                    tableNumber: existingBlocking.session?.table?.number || null,
                 },
             });
+            return;
         }
 
         const session = await prisma.session.create({
@@ -654,7 +862,7 @@ router.post('/cafes/:cafeId/pre-order', async (req: Request, res: Response) => {
                 cafeId,
                 sessionId: session.id,
                 orderType: 'PRE_ORDER',
-                status: 'RECEIVED',
+                status: 'PENDING_APPROVAL',
                 items: JSON.stringify(secureItems),
                 specialInstructions: specialInstructions?.trim() || null,
                 subtotal,
@@ -683,21 +891,33 @@ router.post('/cafes/:cafeId/pre-order', async (req: Request, res: Response) => {
             where: { id: order.id },
             include: { session: { include: { table: true } } },
         });
-        io.to(`CHEF_${cafeId}`).emit('new_order', fullOrder);
+        io.to(`MANAGER_${cafeId}`).emit('new_order', fullOrder);
+        io.to(`ADMIN_${cafeId}`).emit('new_order', fullOrder);
         notifyStaffByRole(
             cafeId,
-            'CHEF',
-            'New Pre-order',
+            'MANAGER',
+            'Preorder Approval Needed',
+            `${customerName.trim()} placed a PRE_ORDER for ${slot.assignedStart.toLocaleTimeString()}.`
+        );
+        notifyStaffByRole(
+            cafeId,
+            'ADMIN',
+            'Preorder Approval Needed',
             `${customerName.trim()} placed a PRE_ORDER for ${slot.assignedStart.toLocaleTimeString()}.`
         );
 
         res.json({
-            message: shouldQueue ? 'Pre-order queued successfully' : 'Pre-order created successfully',
+            message: shouldQueue
+                ? 'Pre-order queued and sent for owner/manager approval.'
+                : 'Pre-order request submitted. Owner/manager approval is required before payment.',
             session,
             order,
             reservationStatus: shouldQueue ? 'QUEUED' : 'CONFIRMED',
             queuePosition: slot.queuePosition,
             advanceAmount: totalPaidNow,
+            approvalRequired: true,
+            approvalStatus: 'PENDING_APPROVAL',
+            paymentNotice: `Please pay the deposit within ${PAYMENT_WINDOW_TEXT} after owner/manager approval.`,
             joinCode: session.joinCode,
             requestedStartAt: requestedStart,
             assignedStartAt: slot.assignedStart,
@@ -707,29 +927,33 @@ router.post('/cafes/:cafeId/pre-order', async (req: Request, res: Response) => {
         });
     } catch (error: any) {
         console.error('Pre-order Error:', error);
-        res.status(500).json({ error: error?.message || 'Failed to create pre-order' });
+        const message = error?.message || 'Failed to create pre-order';
+        res.status(/valid phone number|Menu item not found/i.test(message) ? 400 : 500).json({ error: message });
     }
 });
 
 // POST /api/discover/cafes/:cafeId/takeaway
 router.post('/cafes/:cafeId/takeaway', async (req: Request, res: Response) => {
     try {
+        const authUser = await resolveAuthUserFromRequest(req).catch(() => null);
         const cafeId = String(req.params.cafeId || '');
         const {
             items,
             specialInstructions,
             customerEmail,
             customerName,
+            customerPhone,
             pickupTime,
         } = req.body as {
             items?: unknown;
             specialInstructions?: string;
             customerEmail?: string;
             customerName?: string;
+            customerPhone?: string;
             pickupTime?: string;
         };
 
-        if (!customerEmail || !customerName) {
+        if (!customerEmail || !customerName || !customerPhone) {
             res.status(400).json({ error: 'Missing required fields' });
             return;
         }
@@ -786,8 +1010,8 @@ router.post('/cafes/:cafeId/takeaway', async (req: Request, res: Response) => {
             };
         });
 
-        const advanceRate = cafe.settings?.preOrderAdvanceRate || 40.0;
-        const platformFee = cafe.settings?.platformFeeAmount || 10.0;
+        const advanceRate = platformReservationDefaults.preOrderAdvanceRate;
+        const platformFee = platformReservationDefaults.platformFeeAmount;
         const advancePaid = (subtotal * advanceRate) / 100;
         const totalPaidNow = advancePaid + platformFee;
         const prepMinutes = Math.max(5, cafe.settings?.avgPrepTimeMinutes || 15);
@@ -802,20 +1026,29 @@ router.post('/cafes/:cafeId/takeaway', async (req: Request, res: Response) => {
 
         const pickupAt = parseDateInput(pickupTime, addMinutes(new Date(), prepMinutes * (queueAhead + 1)));
 
-        let customer = await prisma.user.findFirst({
-            where: { email: customerEmail.trim().toLowerCase(), role: 'CUSTOMER' },
+        const customer = await findOrCreateDiscoveryCustomer({
+            customerEmail,
+            customerName,
+            customerPhone,
+            authenticatedCustomerId: authUser?.role === 'CUSTOMER' ? authUser.id : null,
         });
 
-        if (!customer) {
-            customer = await prisma.user.create({
-                data: {
-                    name: customerName.trim(),
-                    email: customerEmail.trim().toLowerCase(),
-                    password: `GUEST_PWD_${Math.random().toString(36).substring(7)}`,
-                    role: 'CUSTOMER',
-                    isEmailVerified: false,
+        const existingBlocking = await findBlockingBookingForCustomer({ customerId: customer.id, cafeId });
+        if (existingBlocking) {
+            res.status(409).json({
+                error: 'You already have a pending or active booking for this cafe. Complete or cancel it before creating another booking.',
+                code: 'EXISTING_ACTIVE_BOOKING',
+                existingBooking: {
+                    orderId: existingBlocking.id,
+                    orderType: existingBlocking.orderType,
+                    status: existingBlocking.status,
+                    paymentStatus: existingBlocking.payment?.status || null,
+                    scheduledAt: existingBlocking.session?.scheduledAt || existingBlocking.session?.createdAt || null,
+                    joinCode: existingBlocking.session?.joinCode || null,
+                    tableNumber: existingBlocking.session?.table?.number || null,
                 },
             });
+            return;
         }
 
         const session = await prisma.session.create({
@@ -835,7 +1068,7 @@ router.post('/cafes/:cafeId/takeaway', async (req: Request, res: Response) => {
                 cafeId,
                 sessionId: session.id,
                 orderType: 'TAKEAWAY',
-                status: 'RECEIVED',
+                status: 'PENDING_APPROVAL',
                 items: JSON.stringify(secureItems),
                 specialInstructions: specialInstructions?.trim() || null,
                 subtotal,
@@ -864,26 +1097,37 @@ router.post('/cafes/:cafeId/takeaway', async (req: Request, res: Response) => {
             where: { id: order.id },
             include: { session: { include: { table: true } } },
         });
-        io.to(`CHEF_${cafeId}`).emit('new_order', fullOrder);
+        io.to(`MANAGER_${cafeId}`).emit('new_order', fullOrder);
+        io.to(`ADMIN_${cafeId}`).emit('new_order', fullOrder);
         notifyStaffByRole(
             cafeId,
-            'CHEF',
-            'New Takeaway',
+            'MANAGER',
+            'Takeaway Approval Needed',
+            `${customerName.trim()} placed a TAKEAWAY order.`
+        );
+        notifyStaffByRole(
+            cafeId,
+            'ADMIN',
+            'Takeaway Approval Needed',
             `${customerName.trim()} placed a TAKEAWAY order.`
         );
 
         res.json({
-            message: 'Takeaway order created successfully',
+            message: 'Takeaway request submitted. Owner/manager approval is required before payment.',
             session,
             order,
             advanceAmount: totalPaidNow,
             orderId: order.id,
             queuePosition: queueAhead + 1,
             estimatedReadyAt: addMinutes(new Date(), prepMinutes * (queueAhead + 1)),
+            approvalRequired: true,
+            approvalStatus: 'PENDING_APPROVAL',
+            paymentNotice: `Please pay the deposit within ${PAYMENT_WINDOW_TEXT} after owner/manager approval.`,
         });
     } catch (error: any) {
         console.error('Takeaway Order Error:', error);
-        res.status(500).json({ error: error?.message || 'Failed to create takeaway order' });
+        const message = error?.message || 'Failed to create takeaway order';
+        res.status(/valid phone number|Menu item not found/i.test(message) ? 400 : 500).json({ error: message });
     }
 });
 
@@ -901,7 +1145,7 @@ router.get('/cafes/:cafeId/tracker/:sessionId', async (req: Request, res: Respon
                     select: { id: true, number: true, capacity: true },
                 },
                 cafe: {
-                    select: { id: true, name: true, settings: true },
+                    select: { id: true, name: true, contactPhone: true, settings: true },
                 },
                 orders: {
                     orderBy: { createdAt: 'desc' },
@@ -912,6 +1156,8 @@ router.get('/cafes/:cafeId/tracker/:sessionId', async (req: Request, res: Respon
                         orderType: true,
                         createdAt: true,
                         totalAmount: true,
+                        approvedAt: true,
+                        approvalExpiresAt: true,
                     },
                 },
             },
@@ -982,6 +1228,9 @@ router.get('/cafes/:cafeId/tracker/:sessionId', async (req: Request, res: Respon
                 minutesUntilStart: Math.max(0, Math.ceil((startsAt.getTime() - Date.now()) / 60000)),
                 isCheckedIn: Boolean(session.deviceIdentifier),
                 latestOrder: session.orders[0] || null,
+                paymentNotice: session.orders[0]?.status === 'RECEIVED'
+                    ? `Order approved. Please pay deposit within ${PAYMENT_WINDOW_TEXT} of approval.`
+                    : 'Waiting for owner/manager approval before payment.',
                 updatedAt: session.updatedAt,
             });
             return;
@@ -1012,6 +1261,9 @@ router.get('/cafes/:cafeId/tracker/:sessionId', async (req: Request, res: Respon
                 ? Math.max(0, Math.ceil((new Date(session.scheduledAt).getTime() - Date.now()) / 60000))
                 : null,
             latestOrder,
+            paymentNotice: latestOrder?.status === 'RECEIVED'
+                ? `Order approved. Please pay deposit within ${PAYMENT_WINDOW_TEXT} of approval.`
+                : 'Waiting for owner/manager approval before payment.',
             updatedAt: session.updatedAt,
         });
     } catch (error) {

@@ -48,7 +48,7 @@ router.get('/tables', authenticate, asyncHandler(async (req: AuthRequest, res: R
 }));
 
 // Create or update a table and generate its QR code setup (Admin & Super Admin)
-router.post('/tables', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), validate(tableSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/tables', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN']), validate(tableSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
     const { number, desc, capacity } = req.body;
     const cafeId = req.user!.cafeId;
 
@@ -107,7 +107,7 @@ router.post('/tables', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), vali
 }));
 
 // Regenerate QR code for a table (invalidates old QR)
-router.post('/tables/:id/regenerate-qr', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/tables/:id/regenerate-qr', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
     const tableId = req.params.id as string;
     const cafeId = req.user!.cafeId;
 
@@ -351,7 +351,7 @@ router.post('/forgot-code', validate(forgotCodeSchema), asyncHandler(async (req:
 }));
 
 // Waiter manually deactivates a 'ghost' or completed session
-router.post('/:id/deactivate', authenticate, requireRole(['WAITER', 'ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/:id/deactivate', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
     const id = req.params.id as string;
     const cafeId = req.user!.cafeId;
 
@@ -388,7 +388,7 @@ router.post('/:id/deactivate', authenticate, requireRole(['WAITER', 'ADMIN']), a
 }));
 
 // Admin: Regenerate QR Token for a table (Invalidates old QR)
-router.post('/tables/:id/regenerate-qr', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/tables/:id/regenerate-qr', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
     const id = req.params.id as string;
     const cafeId = req.user!.cafeId;
 
@@ -423,7 +423,7 @@ router.post('/tables/:id/regenerate-qr', authenticate, requireRole(['ADMIN', 'SU
 }));
 
 // Admin: Delete a table
-router.delete('/tables/:id', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.delete('/tables/:id', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
     const id = req.params.id as string;
     const cafeId = req.user!.cafeId;
 

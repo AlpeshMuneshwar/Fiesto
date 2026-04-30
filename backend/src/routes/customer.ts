@@ -2,33 +2,92 @@ import { Router, Response } from 'express';
 import { prisma } from '../prisma';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { asyncHandler } from '../middleware/error-handler';
+import { validate, customerOrderEditSchema } from '../validators';
 import {
     DEFAULT_SESSION_MINUTES,
     getSessionEnd,
     getSessionStart,
 } from '../utils/reservation-queue';
+import { platformReservationDefaults } from '../config/reservation-defaults';
 
 const router = Router();
 const ACTIVE_ORDER_STATUSES = ['PENDING_APPROVAL', 'RECEIVED', 'PREPARING', 'READY'];
+const EDITABLE_ORDER_TYPES = ['PRE_ORDER', 'TAKEAWAY'];
+const TERMINAL_ORDER_STATUSES = ['COMPLETED', 'CANCELLED', 'REJECTED'];
+const ACTIVE_RESERVATION_STATUSES = ['QUEUED', 'READY_FOR_CHECKIN', 'CHECKED_IN', 'ACTIVE'];
+const ACTIVE_APPROVAL_DISPLAY_STATUSES = ['AWAITING_APPROVAL', 'APPROVED_PAYMENT_PENDING', 'APPROVED_PAYMENT_EXPIRED', 'APPROVED_PAYMENT_COMPLETED'];
+
+const parseOrderItems = (items: string) => {
+    try {
+        const parsed = JSON.parse(items || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+};
 
 const resolveReservationStatus = (booking: any) => {
     if (booking.isPrebooked) {
+        const slotDurationMinutes = booking.slotDurationMinutes || DEFAULT_SESSION_MINUTES;
+        const slotEnd = getSessionEnd({
+            id: booking.id,
+            isActive: booking.isActive,
+            isPrebooked: booking.isPrebooked,
+            scheduledAt: booking.scheduledAt,
+            slotDurationMinutes: booking.slotDurationMinutes,
+            createdAt: booking.createdAt,
+            updatedAt: booking.updatedAt,
+        } as any, slotDurationMinutes);
+        const slotHasPassed = slotEnd.getTime() < Date.now();
+        const hasTerminalOrder = booking.orders?.some((o: any) => TERMINAL_ORDER_STATUSES.includes(o.status));
+
+        if (!booking.isActive && booking.deviceIdentifier) {
+            return 'COMPLETED';
+        }
+
+        if (hasTerminalOrder && !booking.isActive) {
+            return 'COMPLETED';
+        }
+
+        if (!booking.deviceIdentifier && slotHasPassed) {
+            return 'MISSED';
+        }
+
         if (booking.isActive) {
             return booking.deviceIdentifier ? 'CHECKED_IN' : 'READY_FOR_CHECKIN';
-        } else {
-            const hasCompletedOrder = booking.orders?.some((o: any) => ['COMPLETED', 'CANCELLED'].includes(o.status));
-            // A prebooked session is queued if it hasn't started and hasn't been completed
-            if (hasCompletedOrder) return 'COMPLETED';
-            
-            // If no completed order, check if slot has passed by a large margin (e.g., 2 hours). For now, assume it's QUEUED unless it has a terminal order state or if the session is old.
-            const isOld = new Date().getTime() - new Date(booking.scheduledAt || booking.createdAt).getTime() > 12 * 60 * 60 * 1000;
-            if (isOld) return 'COMPLETED';
-            
-            return 'QUEUED';
         }
+
+        return 'QUEUED';
     } else {
         return booking.isActive ? 'ACTIVE' : 'COMPLETED';
     }
+};
+
+const resolveCustomerBookingBucket = (params: {
+    booking: any;
+    latestOrder: any;
+    reservationStatus: string;
+    approvalDisplayStatus: string | null;
+}) => {
+    const { booking, latestOrder, reservationStatus, approvalDisplayStatus } = params;
+
+    if (ACTIVE_RESERVATION_STATUSES.includes(reservationStatus)) {
+        return 'ACTIVE';
+    }
+
+    if (ACTIVE_APPROVAL_DISPLAY_STATUSES.includes(approvalDisplayStatus || '')) {
+        return 'ACTIVE';
+    }
+
+    if (ACTIVE_ORDER_STATUSES.includes(latestOrder?.status || '')) {
+        return 'ACTIVE';
+    }
+
+    if (booking?.isPrebooked && reservationStatus !== 'MISSED' && latestOrder?.status === 'REJECTED') {
+        return 'PAST';
+    }
+
+    return 'PAST';
 };
 
 // GET /api/customer/dashboard
@@ -44,7 +103,7 @@ router.get('/dashboard', authenticate, asyncHandler(async (req: AuthRequest, res
         },
         include: {
             cafe: {
-                select: { id: true, name: true, logoUrl: true, address: true }
+                select: { id: true, name: true, logoUrl: true, address: true, contactPhone: true }
             },
             table: {
                 select: { number: true }
@@ -58,7 +117,12 @@ router.get('/dashboard', authenticate, asyncHandler(async (req: AuthRequest, res
                     totalAmount: true,
                     advancePaid: true,
                     createdAt: true,
-                    specialInstructions: true
+                    specialInstructions: true,
+                    approvedAt: true,
+                    approvalExpiresAt: true,
+                    payment: {
+                        select: { status: true, amount: true }
+                    }
                 },
                 orderBy: { createdAt: 'desc' }
             }
@@ -74,7 +138,7 @@ router.get('/dashboard', authenticate, asyncHandler(async (req: AuthRequest, res
         },
         include: {
             cafe: {
-                select: { id: true, name: true, logoUrl: true, address: true }
+                select: { id: true, name: true, logoUrl: true, address: true, contactPhone: true }
             },
             table: {
                 select: { number: true }
@@ -88,7 +152,12 @@ router.get('/dashboard', authenticate, asyncHandler(async (req: AuthRequest, res
                     totalAmount: true,
                     advancePaid: true,
                     createdAt: true,
-                    specialInstructions: true
+                    specialInstructions: true,
+                    approvedAt: true,
+                    approvalExpiresAt: true,
+                    payment: {
+                        select: { status: true, amount: true }
+                    }
                 },
                 orderBy: { createdAt: 'desc' }
             }
@@ -151,13 +220,27 @@ router.get('/bookings', authenticate, asyncHandler(async (req: AuthRequest, res:
         where: { customerId },
         include: {
             cafe: {
-                select: { name: true, logoUrl: true, address: true }
+                select: { id: true, name: true, logoUrl: true, address: true, contactPhone: true }
             },
             table: {
                 select: { number: true }
             },
             orders: {
-                select: { items: true, totalAmount: true, status: true, isPreorder: true, createdAt: true, orderType: true },
+                select: {
+                    id: true,
+                    items: true,
+                    totalAmount: true,
+                    status: true,
+                    isPreorder: true,
+                    createdAt: true,
+                    orderType: true,
+                    specialInstructions: true,
+                    approvedAt: true,
+                    approvalExpiresAt: true,
+                    payment: {
+                        select: { status: true, amount: true }
+                    },
+                },
                 orderBy: { createdAt: 'desc' }
             }
         },
@@ -247,6 +330,57 @@ router.get('/bookings', authenticate, asyncHandler(async (req: AuthRequest, res:
         }
 
         const bookingType = latestOrder?.orderType || (booking.isPrebooked ? 'PRE_ORDER' : 'DINE_IN');
+        const canEditPendingOrder = Boolean(
+            latestOrder
+            && EDITABLE_ORDER_TYPES.includes(bookingType)
+            && latestOrder.status === 'PENDING_APPROVAL'
+        );
+        const paymentDeadlineAt = latestOrder?.approvalExpiresAt || null;
+        const paymentExpired = Boolean(
+            latestOrder
+            && latestOrder.status === 'RECEIVED'
+            && latestOrder.payment?.status !== 'COMPLETED'
+            && paymentDeadlineAt
+            && new Date(paymentDeadlineAt).getTime() <= Date.now()
+        );
+        const canPayDeposit = Boolean(
+            latestOrder
+            && EDITABLE_ORDER_TYPES.includes(bookingType)
+            && latestOrder.status === 'RECEIVED'
+            && latestOrder.payment?.status !== 'COMPLETED'
+            && !paymentExpired
+        );
+
+        let approvalDisplayStatus: string | null = null;
+        let paymentNotice: string | null = null;
+
+        if (latestOrder && EDITABLE_ORDER_TYPES.includes(bookingType)) {
+            if (latestOrder.status === 'PENDING_APPROVAL') {
+                approvalDisplayStatus = 'AWAITING_APPROVAL';
+                paymentNotice = 'Awaiting owner or manager approval. Deposit payment opens after approval.';
+            } else if (latestOrder.status === 'RECEIVED' && latestOrder.payment?.status !== 'COMPLETED') {
+                if (paymentExpired) {
+                    approvalDisplayStatus = 'APPROVED_PAYMENT_EXPIRED';
+                    paymentNotice = 'Payment window expired. Call the restaurant to reopen the deposit window.';
+                } else {
+                    approvalDisplayStatus = 'APPROVED_PAYMENT_PENDING';
+                    paymentNotice = `Approved. Pay the deposit within ${platformReservationDefaults.preorderPaymentWindowMinutes} minutes.`;
+                }
+            } else if (latestOrder.payment?.status === 'COMPLETED') {
+                approvalDisplayStatus = 'APPROVED_PAYMENT_COMPLETED';
+                paymentNotice = 'Deposit paid. The cafe will prepare this booking for your selected time.';
+            } else if (latestOrder.status === 'REJECTED') {
+                approvalDisplayStatus = 'REJECTED';
+                paymentNotice = 'This booking request was not approved by the cafe.';
+            }
+        }
+
+        const customerViewBucket = resolveCustomerBookingBucket({
+            booking,
+            latestOrder,
+            reservationStatus,
+            approvalDisplayStatus,
+        });
 
         return {
             ...booking,
@@ -259,10 +393,133 @@ router.get('/bookings', authenticate, asyncHandler(async (req: AuthRequest, res:
             queueAhead,
             minutesUntilStart,
             orderQueueRank,
+            latestOrder: latestOrder
+                ? {
+                    ...latestOrder,
+                    parsedItems: parseOrderItems(latestOrder.items),
+                }
+                : null,
+            canEditPendingOrder,
+            canPayDeposit,
+            approvalStatus: latestOrder?.status || null,
+            approvalDisplayStatus,
+            paymentNotice,
+            paymentWindowMinutes: platformReservationDefaults.preorderPaymentWindowMinutes,
+            paymentDeadlineAt,
+            paymentExpired,
+            customerViewBucket,
         };
     }));
 
     res.json(enrichedBookings);
+}));
+
+// PUT /api/customer/orders/:orderId
+// Allow customers to edit preorder/takeaway items only before owner/manager approval.
+router.put('/orders/:orderId', authenticate, validate(customerOrderEditSchema), asyncHandler(async (req: AuthRequest, res: Response) => {
+    const customerId = req.user!.id;
+    const orderId = req.params.orderId as string;
+    const { items, specialInstructions } = req.body;
+
+    const existingOrder = await prisma.order.findFirst({
+        where: {
+            id: orderId,
+            session: {
+                customerId,
+            },
+        },
+        include: {
+            session: {
+                select: {
+                    customerId: true,
+                    cafeId: true,
+                },
+            },
+            payment: true,
+        },
+    }) as any;
+
+    if (!existingOrder) {
+        res.status(404).json({ error: 'Order not found.' });
+        return;
+    }
+
+    if (!EDITABLE_ORDER_TYPES.includes(existingOrder.orderType || '')) {
+        res.status(400).json({ error: 'Only preorder and takeaway orders can be edited here.' });
+        return;
+    }
+
+    if (existingOrder.status !== 'PENDING_APPROVAL') {
+        res.status(409).json({ error: 'This order is already approved or processed and can no longer be edited.' });
+        return;
+    }
+
+    const menuItems = await prisma.menuItem.findMany({
+        where: {
+            cafeId: existingOrder.cafeId,
+            id: { in: items.map((item: any) => item.id) },
+            isActive: true,
+        },
+    });
+
+    const menuItemsMap = new Map(menuItems.map((item) => [item.id, item]));
+    let subtotal = 0;
+
+    const secureItems = items.map((item: any) => {
+        const menuItem = menuItemsMap.get(item.id);
+        if (!menuItem) {
+            throw new Error(`Menu item not found: ${item.id}`);
+        }
+
+        subtotal += menuItem.price * item.quantity;
+        return {
+            id: menuItem.id,
+            name: menuItem.name,
+            quantity: item.quantity,
+            price: menuItem.price,
+        };
+    });
+
+    const platformFee = Number(existingOrder.platformFee || platformReservationDefaults.platformFeeAmount || 0);
+    const advancePaid = (subtotal * Number(platformReservationDefaults.preOrderAdvanceRate || 0)) / 100;
+    const payableAmount = advancePaid + platformFee;
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+        const order = await tx.order.update({
+            where: { id: orderId },
+            data: {
+                items: JSON.stringify(secureItems),
+                specialInstructions: specialInstructions?.trim() || null,
+                subtotal,
+                totalAmount: subtotal,
+                advancePaid,
+                updatedBy: customerId,
+            },
+            include: {
+                payment: true,
+            },
+        });
+
+        if (order.payment) {
+            await tx.payment.update({
+                where: { id: order.payment.id },
+                data: {
+                    amount: payableAmount,
+                    updatedBy: customerId,
+                } as any,
+            });
+        }
+
+        return order;
+    });
+
+    res.json({
+        message: 'Pending order updated successfully.',
+        order: {
+            ...updatedOrder,
+            parsedItems: secureItems,
+        },
+    });
 }));
 
 // POST /api/customer/bookings/:sessionId/cancel

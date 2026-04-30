@@ -101,3 +101,67 @@ export const sendOTPEmail = async (to: string, otp: string, purpose: string) => 
 
     return sendEmail(to, subject, html);
 };
+
+export const sendPreorderStatusEmail = async (params: {
+    to: string;
+    customerName?: string | null;
+    cafeName: string;
+    cafePhone?: string | null;
+    orderType: 'PRE_ORDER' | 'TAKEAWAY';
+    approved: boolean;
+    paymentWindowMinutes?: number | null;
+    approvalExpiresAt?: Date | string | null;
+}) => {
+    const {
+        to,
+        customerName,
+        cafeName,
+        cafePhone,
+        orderType,
+        approved,
+        paymentWindowMinutes,
+        approvalExpiresAt,
+    } = params;
+
+    const label = orderType === 'TAKEAWAY' ? 'takeaway order' : 'preorder';
+    const subject = approved
+        ? `Your ${cafeName} ${label} is approved`
+        : `Your ${cafeName} ${label} was not approved`;
+    const greeting = customerName?.trim() ? `Hi ${customerName.trim()},` : 'Hello,';
+    const expiresAtLabel = approvalExpiresAt
+        ? new Date(approvalExpiresAt).toLocaleString()
+        : null;
+
+    const html = `
+        <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; border: 1px solid #E5E7EB; background: #FFFFFF;">
+            <div style="padding: 24px; border-bottom: 4px solid ${approved ? '#16A34A' : '#DC2626'};">
+                <p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: ${approved ? '#166534' : '#991B1B'};">FIESTO ORDER UPDATE</p>
+                <h2 style="margin: 0; color: #0F172A; font-size: 28px;">${approved ? 'Order approved' : 'Order update'}</h2>
+            </div>
+            <div style="padding: 24px;">
+                <p style="margin: 0 0 14px; color: #334155; font-size: 15px; line-height: 24px;">${greeting}</p>
+                <p style="margin: 0 0 18px; color: #334155; font-size: 15px; line-height: 24px;">
+                    Your ${label} at <strong>${cafeName}</strong> has been ${approved ? 'approved' : 'rejected by the cafe team'}.
+                </p>
+                ${approved ? `
+                    <div style="background: #F0FDF4; border: 1px solid #BBF7D0; padding: 16px; margin-bottom: 18px;">
+                        <p style="margin: 0 0 8px; color: #166534; font-size: 14px; line-height: 22px; font-weight: 700;">
+                            Please complete the deposit payment within ${paymentWindowMinutes || 60} minutes.
+                        </p>
+                        ${expiresAtLabel ? `<p style="margin: 0; color: #166534; font-size: 13px; line-height: 21px;">Payment window ends at ${expiresAtLabel}.</p>` : ''}
+                    </div>
+                ` : `
+                    <div style="background: #FEF2F2; border: 1px solid #FECACA; padding: 16px; margin-bottom: 18px;">
+                        <p style="margin: 0; color: #991B1B; font-size: 14px; line-height: 22px; font-weight: 700;">
+                            You can update the order and place a fresh request if needed.
+                        </p>
+                    </div>
+                `}
+                ${cafePhone ? `<p style="margin: 0 0 10px; color: #475569; font-size: 14px; line-height: 22px;">Need help? Call the cafe at <strong>${cafePhone}</strong>.</p>` : ''}
+                <p style="margin: 0; color: #64748B; font-size: 13px; line-height: 21px;">Fiesto by Cafe QR Solutions</p>
+            </div>
+        </div>
+    `;
+
+    return sendEmail(to, subject, html);
+};

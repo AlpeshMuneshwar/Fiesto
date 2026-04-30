@@ -130,7 +130,14 @@ export default function AdminStaffManagementScreen({ navigation }: any) {
                                     <Text style={styles.memberName}>{member.name} {member.isActive === false ? '(Locked)' : ''}</Text>
                                     <Text style={styles.memberEmail}>{member.email}</Text>
                                     <View style={{ flexDirection: 'row', marginTop: 8, gap: 10 }}>
-                                        <View style={[styles.roleBadge, member.role === 'CHEF' ? styles.chefBg : styles.waiterBg]}>
+                                        <View style={[
+                                            styles.roleBadge,
+                                            member.role === 'CHEF'
+                                                ? styles.chefBg
+                                                : member.role === 'MANAGER'
+                                                    ? styles.managerBg
+                                                    : styles.waiterBg
+                                        ]}>
                                             <Text style={styles.roleText}>{member.role}</Text>
                                         </View>
                                     {member.isActive === false && (
@@ -166,7 +173,7 @@ export default function AdminStaffManagementScreen({ navigation }: any) {
                         <TextInput style={[styles.input, formError && !editingId && !form.password ? styles.inputError : null]} placeholder={editingId ? "Leave blank to keep same password" : "Password"} placeholderTextColor="#64748B" secureTextEntry value={form.password} onChangeText={v => { setForm({ ...form, password: v }); setFormError(''); }} />
 
                         <View style={styles.roleTabs}>
-                            {['WAITER', 'CHEF'].map(r => (
+                            {['WAITER', 'CHEF', 'MANAGER'].map(r => (
                                 <TouchableOpacity
                                     key={r}
                                     style={[styles.roleTab, form.role === r && styles.roleTabActive]}
@@ -218,6 +225,7 @@ const styles = StyleSheet.create({
     roleBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
     waiterBg: { backgroundColor: 'rgba(56, 189, 248, 0.15)' },
     chefBg: { backgroundColor: 'rgba(168, 85, 247, 0.15)' },
+    managerBg: { backgroundColor: 'rgba(16, 185, 129, 0.15)' },
     roleText: { color: 'white', fontSize: 12, fontWeight: '800', textTransform: 'uppercase' },
     actionBlock: { flexDirection: 'row', gap: 10 },
     editBtn: { backgroundColor: '#334155', padding: 10, borderRadius: 8 },

@@ -6,6 +6,7 @@ import CustomerMenuScreen from '../screens/CustomerMenuScreen';
 import WaiterDashboardScreen from '../screens/WaiterDashboardScreen';
 import ChefDashboardScreen from '../screens/ChefDashboardScreen';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
+import ManagerDashboardScreen from '../screens/ManagerDashboardScreen';
 import SuperAdminDashboardScreen from '../screens/SuperAdminDashboardScreen';
 import LandingScreen from '../screens/LandingScreen';
 import DiscoveryPortalWebScreen from '../screens/DiscoveryPortalWebScreen';
@@ -15,6 +16,7 @@ import AdminTableManagementScreen from '../screens/AdminTableManagementScreen';
 import AdminMenuManagementScreen from '../screens/AdminMenuManagementScreen';
 import AdminStaffManagementScreen from '../screens/AdminStaffManagementScreen';
 import AdminSettingsScreen from '../screens/AdminSettingsScreen';
+import AdminOrdersScreen from '../screens/AdminOrdersScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import AdminReportsWebScreen from '../screens/AdminReportsWebScreen';
@@ -41,10 +43,12 @@ export const linking = {
             WaiterDashboard: 'waiter',
             ChefDashboard: 'chef',
             AdminDashboard: 'admin',
+            ManagerDashboard: 'manager',
             AdminTableManagement: 'admin/tables',
             AdminMenuManagement: 'admin/menu',
             AdminStaffManagement: 'admin/staff',
             AdminSettings: 'admin/settings',
+            AdminOrders: 'admin/orders',
             AdminReports: 'admin/reports',
             SuperAdminDashboard: 'super-admin',
             ReservationSuccess: 'booking-success',
@@ -78,10 +82,12 @@ export default function AppNavigator() {
             <Stack.Screen name="WaiterDashboard" component={WaiterDashboardScreen} options={{ title: 'Waiter Dashboard' }} />
             <Stack.Screen name="ChefDashboard" component={ChefDashboardScreen} options={{ title: 'Kitchen Display' }} />
             <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ title: 'Admin Hub', headerLeft: () => null }} />
+            <Stack.Screen name="ManagerDashboard" component={ManagerDashboardScreen} options={{ title: 'Manager Hub', headerLeft: () => null }} />
             <Stack.Screen name="AdminTableManagement" component={AdminTableManagementScreen} options={{ title: 'Table Management' }} />
             <Stack.Screen name="AdminMenuManagement" component={AdminMenuManagementScreen} options={{ title: 'Menu Management' }} />
             <Stack.Screen name="AdminStaffManagement" component={AdminStaffManagementScreen} options={{ title: 'Staff Recruitment' }} />
             <Stack.Screen name="AdminSettings" component={AdminSettingsScreen} options={{ title: 'Cafe Settings' }} />
+            <Stack.Screen name="AdminOrders" component={AdminOrdersScreen as any} options={{ headerShown: false }} />
             <Stack.Screen name="AdminReports" component={AdminReportsWebScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SuperAdminDashboard" component={SuperAdminDashboardScreen} options={{ title: 'Platform Control' }} />
             <Stack.Screen name="ReservationSuccess" component={ReservationSuccessScreen as any} options={{ headerShown: false }} />

@@ -53,10 +53,13 @@ export default function CustomerProfileScreen({ navigation }: any) {
         }
     };
 
-    const activeBookings = bookings.filter((b) => ['QUEUED', 'READY_FOR_CHECKIN', 'CHECKED_IN', 'ACTIVE'].includes(b.reservationStatus));
-    const historyBookings = bookings.filter((b) => b.reservationStatus === 'COMPLETED');
+    const activeBookings = bookings.filter((b) => isActiveBooking(b));
+    const historyBookings = bookings.filter((b) => !isActiveBooking(b));
 
-    const renderBookingCard = (booking: any) => (
+    const renderBookingCard = (booking: any) => {
+        const approvalCallout = getApprovalCallout(booking);
+
+        return (
         <TouchableOpacity 
             key={booking.id} 
             style={styles.bookingCard}
@@ -138,6 +141,13 @@ export default function CustomerProfileScreen({ navigation }: any) {
                     </View>
                 )}
 
+                {approvalCallout ? (
+                    <View style={[styles.noticeBox, { backgroundColor: approvalCallout.backgroundColor, borderColor: approvalCallout.borderColor }]}>
+                        <Text style={[styles.noticeTitle, { color: approvalCallout.titleColor }]}>{approvalCallout.title}</Text>
+                        <Text style={[styles.noticeText, { color: approvalCallout.textColor }]}>{approvalCallout.message}</Text>
+                    </View>
+                ) : null}
+
                 {booking.orders.length > 0 && booking.reservationStatus === 'COMPLETED' && (
                     <View style={styles.orderSummary}>
                         <FileText color="#94A3B8" size={14} />
@@ -149,7 +159,8 @@ export default function CustomerProfileScreen({ navigation }: any) {
                 )}
             </View>
         </TouchableOpacity>
-    );
+        );
+    };
 
     if (loading) {
         return (
@@ -283,6 +294,9 @@ const styles = StyleSheet.create({
 
     orderSummary: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 15, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)' },
     summaryText: { color: '#94A3B8', fontSize: 14, fontWeight: '600' },
+    noticeBox: { marginTop: 14, borderWidth: 1, borderRadius: 12, padding: 12, gap: 4 },
+    noticeTitle: { fontSize: 12, fontWeight: '800' },
+    noticeText: { fontSize: 12, lineHeight: 18, fontWeight: '600' },
 
     emptyState: { alignItems: 'center', marginTop: 60, paddingHorizontal: 30 },
     emptyTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', marginBottom: 8 },
@@ -297,7 +311,79 @@ function formatReservationStatus(status: string) {
         case 'READY_FOR_CHECKIN': return 'READY';
         case 'CHECKED_IN': return 'CHECKED IN';
         case 'ACTIVE': return 'ACTIVE';
+        case 'MISSED': return 'MISSED';
         default: return 'COMPLETED';
+    }
+}
+
+function isActiveBooking(booking: any) {
+    if (['MISSED', 'COMPLETED'].includes(booking?.reservationStatus)) {
+        return false;
+    }
+
+    if (['QUEUED', 'READY_FOR_CHECKIN', 'CHECKED_IN', 'ACTIVE'].includes(booking?.reservationStatus)) {
+        return true;
+    }
+
+    const latestStatus = booking?.latestOrder?.status;
+    if (['PENDING_APPROVAL', 'RECEIVED', 'PREPARING', 'READY', 'AWAITING_PICKUP'].includes(latestStatus)) {
+        return true;
+    }
+
+    return ['AWAITING_APPROVAL', 'APPROVED_PAYMENT_PENDING', 'APPROVED_PAYMENT_COMPLETED'].includes(booking?.approvalDisplayStatus);
+}
+
+function formatDateTime(value?: string | Date | null) {
+    if (!value) return '--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--';
+    return date.toLocaleString();
+}
+
+function getApprovalCallout(booking: any) {
+    const deadlineText = booking?.paymentDeadlineAt
+        ? ` Complete payment before ${formatDateTime(booking.paymentDeadlineAt)}.`
+        : '';
+
+    switch (booking?.approvalDisplayStatus) {
+        case 'AWAITING_APPROVAL':
+            return {
+                title: 'Awaiting Approval',
+                message: booking?.paymentNotice || 'Owner or manager approval is still pending.',
+                backgroundColor: 'rgba(245, 158, 11, 0.12)',
+                borderColor: 'rgba(245, 158, 11, 0.35)',
+                titleColor: '#F59E0B',
+                textColor: '#FCD34D',
+            };
+        case 'APPROVED_PAYMENT_PENDING':
+            return {
+                title: 'Approved, Deposit Pending',
+                message: `${booking?.paymentNotice || 'Your booking is approved.'}${deadlineText}`,
+                backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                borderColor: 'rgba(56, 189, 248, 0.35)',
+                titleColor: '#38BDF8',
+                textColor: '#7DD3FC',
+            };
+        case 'APPROVED_PAYMENT_COMPLETED':
+            return {
+                title: 'Deposit Paid',
+                message: booking?.paymentNotice || 'Deposit payment has been received for this booking.',
+                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                borderColor: 'rgba(16, 185, 129, 0.35)',
+                titleColor: '#10B981',
+                textColor: '#6EE7B7',
+            };
+        case 'REJECTED':
+            return {
+                title: 'Not Approved',
+                message: booking?.paymentNotice || 'This booking request was not approved by the cafe.',
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                borderColor: 'rgba(239, 68, 68, 0.35)',
+                titleColor: '#EF4444',
+                textColor: '#FCA5A5',
+            };
+        default:
+            return null;
     }
 }
 
@@ -310,6 +396,8 @@ function getStatusBadgeStyle(status: string) {
         case 'CHECKED_IN':
         case 'ACTIVE':
             return { backgroundColor: 'rgba(16, 185, 129, 0.1)' };
+        case 'MISSED':
+            return { backgroundColor: 'rgba(239, 68, 68, 0.12)' };
         default:
             return { backgroundColor: 'rgba(148, 163, 184, 0.1)' };
     }
@@ -324,6 +412,8 @@ function getStatusTextStyle(status: string) {
         case 'CHECKED_IN':
         case 'ACTIVE':
             return { color: '#10B981' };
+        case 'MISSED':
+            return { color: '#EF4444' };
         default:
             return { color: '#94A3B8' };
     }

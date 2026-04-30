@@ -11,6 +11,7 @@ import { activateNextQueuedReservation } from '../utils/reservation-queue';
 import { ApiError } from '../middleware/error-handler';
 import { isRazorpayConfigured, razorpayConfig } from '../config/payments';
 import { getRazorpayClient, verifyRazorpayPaymentSignature, verifyRazorpayWebhookSignature } from '../services/razorpay';
+import { getPreorderPaymentWindowMinutes, isPreorderType } from '../utils/operational-mode';
 
 const router = Router();
 
@@ -22,6 +23,8 @@ const parseItems = (orders: any[]) =>
             return [];
         }
     });
+
+const addMinutes = (date: Date, minutes: number) => new Date(date.getTime() + minutes * 60 * 1000);
 
 const markPaymentCaptured = async (paymentId: string, data: {
     providerPaymentId: string;
@@ -134,6 +137,31 @@ router.post('/razorpay/create-order', validate(razorpayCreateOrderSchema), async
 
     if (!order) {
         throw new ApiError(404, 'Order not found', 'ORDER_NOT_FOUND');
+    }
+
+    const preorderLike = isPreorderType(order.orderType, order.isPreorder);
+    if (preorderLike && order.status !== 'RECEIVED') {
+        throw new ApiError(
+            403,
+            'This preorder/takeaway is waiting for owner or manager approval before payment.',
+            'PREORDER_APPROVAL_REQUIRED'
+        );
+    }
+
+    if (preorderLike) {
+        const paymentWindowMinutes = getPreorderPaymentWindowMinutes(order.session?.cafe?.settings as any);
+        const expiresAt = order.approvalExpiresAt
+            ? new Date(order.approvalExpiresAt)
+            : addMinutes(new Date(order.updatedAt), paymentWindowMinutes);
+
+        if (expiresAt.getTime() < Date.now()) {
+            throw new ApiError(
+                410,
+                'Approval payment window has expired. Ask owner/manager to re-approve your preorder.',
+                'PREORDER_PAYMENT_WINDOW_EXPIRED',
+                { approvalExpiresAt: expiresAt.toISOString() }
+            );
+        }
     }
 
     const payableAmount = Math.round(Math.max(0, order.advancePaid + order.platformFee) * 100);
@@ -310,8 +338,8 @@ router.post('/razorpay/webhook', asyncHandler(async (req: Request, res: Response
 }));
 
 // GET pending checkout requests for this cafe's waiters
-router.get('/pending', authenticate, requireRole(['WAITER', 'ADMIN']), asyncHandler(async (req: any, res: Response) => {
-    const cafeId = req.headers['x-cafe-id'] as string;
+router.get('/pending', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), asyncHandler(async (req: any, res: Response) => {
+    const cafeId = req.user?.cafeId as string;
     // For now, return sessions with active orders that are DELIVERED but session still active (awaiting payment)
     const sessions = await prisma.session.findMany({
         where: {
@@ -345,7 +373,7 @@ router.get('/pending', authenticate, requireRole(['WAITER', 'ADMIN']), asyncHand
 
 // Waiter / Counter generating a bill for a session
 // ==========================================
-router.post('/generate-bill/:sessionId', authenticate, requireRole(['WAITER', 'ADMIN', 'SUPER_ADMIN']), asyncHandler(async (req: any, res: Response) => {
+router.post('/generate-bill/:sessionId', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']), asyncHandler(async (req: any, res: Response) => {
     const sessionId = req.params.sessionId as string;
     
     const session = await prisma.session.findUnique({
@@ -390,7 +418,7 @@ router.post('/generate-bill/:sessionId', authenticate, requireRole(['WAITER', 'A
 
 // Waiter / Counter marks payment as complete and ends session
 // ==========================================
-router.post('/complete/:sessionId', authenticate, requireRole(['WAITER', 'ADMIN', 'SUPER_ADMIN']), asyncHandler(async (req: any, res: Response) => {
+router.post('/complete/:sessionId', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']), asyncHandler(async (req: any, res: Response) => {
     const sessionId = req.params.sessionId as string;
 
     const session = await prisma.session.findUnique({
@@ -513,7 +541,7 @@ router.post('/request-payment/:sessionId', asyncHandler(async (req: any, res: Re
 }));
 
 // Waiter acknowledges payment request
-router.post('/acknowledge-payment/:sessionId', authenticate, requireRole(['WAITER', 'ADMIN']), asyncHandler(async (req: any, res: Response) => {
+router.post('/acknowledge-payment/:sessionId', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), asyncHandler(async (req: any, res: Response) => {
     const sessionId = req.params.sessionId as string;
     const waiterId = req.user?.id;
     const cafeId = req.user?.cafeId;
@@ -590,7 +618,7 @@ router.post('/acknowledge-payment/:sessionId', authenticate, requireRole(['WAITE
 }));
 
 // Waiter marks payment as completed
-router.post('/complete-payment/:sessionId', authenticate, requireRole(['WAITER', 'ADMIN']), asyncHandler(async (req: any, res: Response) => {
+router.post('/complete-payment/:sessionId', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), asyncHandler(async (req: any, res: Response) => {
     const sessionId = req.params.sessionId as string;
     const { paymentMethod } = req.body; // CASH, DIGITAL, etc.
     const waiterId = req.user?.id;
@@ -677,7 +705,7 @@ router.post('/complete-payment/:sessionId', authenticate, requireRole(['WAITER',
 }));
 
 // Waiter sends bill via email
-router.post('/send-bill-email/:sessionId', authenticate, requireRole(['WAITER', 'ADMIN']), asyncHandler(async (req: any, res: Response) => {
+router.post('/send-bill-email/:sessionId', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), asyncHandler(async (req: any, res: Response) => {
     const sessionId = req.params.sessionId as string;
     const { customerEmail } = req.body;
     const waiterId = req.user?.id;

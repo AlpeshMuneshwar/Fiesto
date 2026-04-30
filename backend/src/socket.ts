@@ -2,6 +2,8 @@ import { Server } from 'socket.io';
 import { Server as HttpServer } from 'http';
 import jwt from 'jsonwebtoken';
 import { allowedOrigins } from './config/runtime';
+import { prisma } from './prisma';
+import { evaluateRoleAccessForMode } from './utils/operational-mode';
 
 let io: Server;
 
@@ -24,7 +26,7 @@ export const initSocket = (httpServer: HttpServer) => {
     });
 
     // Socket.IO authentication middleware
-    io.use((socket, next) => {
+    io.use(async (socket, next) => {
         const token = socket.handshake.auth?.token || socket.handshake.query?.token;
 
         // Allow customer connections without auth (they use session codes instead)
@@ -51,6 +53,22 @@ export const initSocket = (httpServer: HttpServer) => {
                 role: string;
                 cafeId: string;
             };
+
+            if ((decoded.role === 'WAITER' || decoded.role === 'CHEF') && decoded.cafeId) {
+                const settings = await prisma.cafeSettings.findUnique({
+                    where: { cafeId: decoded.cafeId },
+                    select: {
+                        orderRoutingMode: true,
+                        directAdminChefAppEnabled: true,
+                    } as any,
+                });
+
+                const access = evaluateRoleAccessForMode(decoded.role, settings as any);
+                if (access.blocked) {
+                    return next(new Error(access.message || 'This app is disabled by current cafe mode.'));
+                }
+            }
+
             (socket as any).userData = decoded;
             next();
         } catch (err) {

@@ -5,7 +5,7 @@ import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 const router = Router();
 
 // Get active waiter calls for the cafe
-router.get('/active', authenticate, requireRole(['WAITER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
+router.get('/active', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
         const calls = await prisma.staffCall.findMany({
@@ -34,7 +34,7 @@ router.get('/active', authenticate, requireRole(['WAITER', 'ADMIN']), async (req
     }
 });
 
-router.get('/history', authenticate, requireRole(['WAITER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
+router.get('/history', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const staffId = req.user!.id;
         

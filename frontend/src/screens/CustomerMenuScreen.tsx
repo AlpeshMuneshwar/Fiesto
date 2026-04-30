@@ -482,7 +482,10 @@ export default function CustomerMenuScreen({ route, navigation }: any) {
                 navigation.replace('ReservationSuccess', { 
                     session: res.data.session, 
                     preOrder: res.data.preOrder, 
-                    cafeName: res.data.cafeName || 'Our Cafe'
+                    cafeName: res.data.cafeName || 'Our Cafe',
+                    approvalRequired: res.data.approvalRequired,
+                    paymentNotice: res.data.paymentNotice,
+                    reservationStatus: res.data.reservationStatus,
                 });
                 return;
             } else {
@@ -1011,10 +1014,10 @@ export default function CustomerMenuScreen({ route, navigation }: any) {
                         
                         {isPreOrderMode && (
                             <View style={styles.preOrderCalc}>
-                                <Text style={styles.taxNote}>* Final advance to pay now ({settings?.preOrderAdvanceRate || 30}% of order + {settings?.currencySymbol || '$'}{settings?.platformFeeAmount || 10} platform fee).</Text>
+                                <Text style={styles.taxNote}>* Final advance to pay now ({settings?.preOrderAdvanceRate || 40}% of order + {settings?.currencySymbol || '$'}{settings?.platformFeeAmount || 10} platform fee).</Text>
                                 <View style={styles.paymentPreview}>
                                     <Text style={styles.previewLabel}>Pre-booking Advance:</Text>
-                                    <Text style={styles.previewValueActive}>{settings?.currencySymbol || '$'}{((cartTotal * ((settings?.preOrderAdvanceRate || 30) / 100)) + (settings?.platformFeeAmount || 10)).toFixed(2)}</Text>
+                                    <Text style={styles.previewValueActive}>{settings?.currencySymbol || '$'}{((cartTotal * ((settings?.preOrderAdvanceRate || 40) / 100)) + (settings?.platformFeeAmount || 10)).toFixed(2)}</Text>
                                 </View>
                             </View>
                         )}

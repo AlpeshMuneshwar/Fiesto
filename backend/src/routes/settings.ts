@@ -3,13 +3,14 @@ import { prisma } from '../prisma';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import { validate, cafeSettingsSchema } from '../validators';
 import { recordActivity } from '../utils/audit';
+import { platformReservationDefaults } from '../config/reservation-defaults';
 
 const router = Router();
 
 // ==========================================
 // GET /settings/ — Admin: get own cafe settings
 // ==========================================
-router.get('/', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+router.get('/', authenticate, requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
 
@@ -20,13 +21,17 @@ router.get('/', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, r
             settings = await prisma.cafeSettings.create({
                 data: { 
                     cafeId,
+                    ...platformReservationDefaults,
                     createdBy: req.user?.id || 'SYSTEM',
                     updatedBy: req.user?.id || 'SYSTEM'
                 },
             });
         }
 
-        res.json(settings);
+        res.json({
+            ...settings,
+            ...platformReservationDefaults,
+        });
     } catch (error) {
         console.error('[Settings Get Error]', error);
         res.status(500).json({ error: 'Failed to fetch settings' });
@@ -52,6 +57,7 @@ router.get('/public/:cafeId', async (req: any, res: Response) => {
             settings = await prisma.cafeSettings.create({
                 data: { 
                     cafeId,
+                    ...platformReservationDefaults,
                     createdBy: 'CUSTOMER_ACTION',
                     updatedBy: 'CUSTOMER_ACTION'
                 },
@@ -61,6 +67,8 @@ router.get('/public/:cafeId', async (req: any, res: Response) => {
         // Only return customer-facing settings (strip internal IDs)
         res.json({
             paymentMode: settings.paymentMode,
+            orderRoutingMode: (settings as any).orderRoutingMode || 'STANDARD',
+            directAdminChefAppEnabled: Boolean((settings as any).directAdminChefAppEnabled),
             taxEnabled: settings.taxEnabled,
             taxRate: settings.taxRate,
             taxLabel: settings.taxLabel,
@@ -76,9 +84,10 @@ router.get('/public/:cafeId', async (req: any, res: Response) => {
             menuImagesEnabled: settings.menuImagesEnabled,
             currency: settings.currency,
             currencySymbol: settings.currencySymbol,
-            reservationsEnabled: settings.reservationsEnabled,
-            platformFeeAmount: settings.platformFeeAmount,
-            preOrderAdvanceRate: settings.preOrderAdvanceRate,
+            reservationsEnabled: platformReservationDefaults.reservationsEnabled,
+            platformFeeAmount: platformReservationDefaults.platformFeeAmount,
+            preOrderAdvanceRate: platformReservationDefaults.preOrderAdvanceRate,
+            preorderPaymentWindowMinutes: platformReservationDefaults.preorderPaymentWindowMinutes,
             businessOpenTime: (settings as any).businessOpenTime || null,
             businessCloseTime: (settings as any).businessCloseTime || null,
         });
@@ -93,11 +102,28 @@ router.get('/public/:cafeId', async (req: any, res: Response) => {
 router.put('/', authenticate, requireRole(['ADMIN']), validate(cafeSettingsSchema), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
+        const incoming = { ...(req.body || {}) } as Record<string, unknown>;
+        delete incoming.reservationsEnabled;
+        delete incoming.platformFeeAmount;
+        delete incoming.preOrderAdvanceRate;
+        delete incoming.preorderPaymentWindowMinutes;
+        const updatePayload: any = {
+            ...incoming,
+            ...platformReservationDefaults,
+            updatedBy: req.user?.id,
+        };
+        const createPayload: any = {
+            cafeId,
+            ...incoming,
+            ...platformReservationDefaults,
+            createdBy: req.user?.id,
+            updatedBy: req.user?.id,
+        };
 
         const settings = await prisma.cafeSettings.upsert({
             where: { cafeId },
-            update: { ...req.body, updatedBy: req.user?.id },
-            create: { cafeId, ...req.body, createdBy: req.user?.id, updatedBy: req.user?.id },
+            update: updatePayload,
+            create: createPayload,
         });
 
         // Audit Log
@@ -107,10 +133,16 @@ router.put('/', authenticate, requireRole(['ADMIN']), validate(cafeSettingsSchem
             role: 'ADMIN',
             actionType: 'SETTINGS_UPDATE',
             message: `Updated Cafe Settings`,
-            metadata: { changes: Object.keys(req.body) }
+            metadata: { changes: Object.keys(incoming) }
         });
 
-        res.json({ message: 'Settings updated successfully', settings });
+        res.json({
+            message: 'Settings updated successfully',
+            settings: {
+                ...settings,
+                ...platformReservationDefaults,
+            },
+        });
     } catch (error) {
         console.error('[Settings Update Error]', error);
         res.status(500).json({ error: 'Failed to update settings' });

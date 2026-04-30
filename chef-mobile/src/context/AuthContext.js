@@ -56,20 +56,28 @@ export const AuthProvider = ({ children }) => {
                 err.email = e.response.data.email;
                 throw err;
             }
-            throw new Error(e.response?.data?.error || e.message || 'Login failed');
+            const err = new Error(e.response?.data?.error || e.message || 'Login failed');
+            err.code = e.response?.data?.code;
+            throw err;
         }
     };
 
     const loginWithOtp = async (email, otp) => {
-        const res = await client.post('/auth/login-otp', { email, otp, purpose: 'LOGIN' });
-        const { user, token } = res.data;
-        if (user.role !== 'CHEF' && user.role !== 'ADMIN') {
-            throw new Error('Unauthorized role for this application');
+        try {
+            const res = await client.post('/auth/login-otp', { email, otp, purpose: 'LOGIN' });
+            const { user, token } = res.data;
+            if (user.role !== 'CHEF' && user.role !== 'ADMIN') {
+                throw new Error('Unauthorized role for this application');
+            }
+            await AsyncStorage.setItem('userToken', token);
+            await AsyncStorage.setItem('user', JSON.stringify(user));
+            setUser(user);
+            return user;
+        } catch (e) {
+            const err = new Error(e.response?.data?.error || e.message || 'Login failed');
+            err.code = e.response?.data?.code;
+            throw err;
         }
-        await AsyncStorage.setItem('userToken', token);
-        await AsyncStorage.setItem('user', JSON.stringify(user));
-        setUser(user);
-        return user;
     };
 
     const requestOtp = async (email, purpose) => {

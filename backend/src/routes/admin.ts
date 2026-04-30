@@ -2,11 +2,130 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../prisma';
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth';
 import bcrypt from 'bcrypt';
+import multer from 'multer';
+import sharp from 'sharp';
 import { validate, staffSchema, profileUpdateSchema, categoryToggleSchema, staffUpdateSchema, discoveryProfileSchema } from '../validators';
 import { sendOTPEmail } from '../utils/email';
 import { recordActivity } from '../utils/audit';
+import { parseGoogleMapsLink } from '../utils/google-maps';
+import { parseLegacyGalleryImages, resolveDiscoveryMedia } from '../utils/discovery-media';
+import { normalizePhoneNumber } from '../utils/phone';
 
 const router = Router();
+
+const discoveryUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 8 * 1024 * 1024,
+        files: 7,
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+            return;
+        }
+        cb(new Error('Only JPG, PNG, and WebP images are allowed.'));
+    },
+});
+
+const handleDiscoveryUpload = (req: Request, res: Response, next: any) => {
+    discoveryUpload.fields([
+        { name: 'coverImage', maxCount: 1 },
+        { name: 'galleryImages', maxCount: 6 },
+    ])(req, res, (err: any) => {
+        if (err instanceof multer.MulterError) {
+            res.status(400).json({ error: `Upload error: ${err.message}` });
+            return;
+        }
+
+        if (err) {
+            res.status(400).json({ error: err.message || 'Failed to upload images.' });
+            return;
+        }
+
+        next();
+    });
+};
+
+const discoveryProfileSelect = {
+    id: true,
+    name: true,
+    city: true,
+    contactPhone: true,
+    googleMapsUrl: true,
+    latitude: true,
+    longitude: true,
+    isFeatured: true,
+    featuredPriority: true,
+    coverImage: true,
+    galleryImages: true,
+    discoveryAssets: {
+        select: {
+            id: true,
+            kind: true,
+            sortOrder: true,
+            createdAt: true,
+        },
+    },
+} as const;
+
+const parseDiscoveryRequestBody = (body: any) => {
+    if (body && typeof body.data === 'string') {
+        try {
+            return JSON.parse(body.data);
+        } catch {
+            throw new Error('Invalid JSON in data field.');
+        }
+    }
+
+    return body;
+};
+
+const compressDiscoveryImage = async (file: Express.Multer.File, kind: 'COVER' | 'GALLERY') => {
+    const width = kind === 'COVER' ? 1600 : 1400;
+    const height = kind === 'COVER' ? 900 : 1400;
+    const quality = kind === 'COVER' ? 80 : 76;
+
+    const transformed = await sharp(file.buffer)
+        .rotate()
+        .resize({
+            width,
+            height,
+            fit: 'inside',
+            withoutEnlargement: true,
+        })
+        .webp({ quality })
+        .toBuffer({ resolveWithObject: true });
+
+    return {
+        mimeType: 'image/webp',
+        byteSize: transformed.info.size,
+        data: transformed.data,
+        originalName: file.originalname || null,
+    };
+};
+
+const serializeDiscoveryProfile = (cafe: any, req: Request) => {
+    const discoveryMedia = resolveDiscoveryMedia(cafe, req);
+
+    return {
+        id: cafe.id,
+        name: cafe.name,
+        city: cafe.city,
+        contactPhone: cafe.contactPhone || null,
+        googleMapsUrl: cafe.googleMapsUrl || null,
+        latitude: cafe.latitude,
+        longitude: cafe.longitude,
+        isFeatured: cafe.isFeatured,
+        featuredPriority: cafe.featuredPriority,
+        coverImage: discoveryMedia.coverImage,
+        coverImageAssetId: discoveryMedia.coverImageAssetId,
+        galleryImages: discoveryMedia.galleryImages,
+        galleryImageAssets: discoveryMedia.galleryImageAssets,
+        legacyGalleryImages: discoveryMedia.legacyGalleryImages,
+    };
+};
 
 router.get('/cafe-status', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
@@ -68,7 +187,7 @@ router.patch('/cafe-status', authenticate, requireRole(['ADMIN']), async (req: A
 });
 
 // Get Admin Stats (Dashboard Insights)
-router.get('/stats', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+router.get('/stats', authenticate, requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
         const today = new Date();
@@ -141,37 +260,89 @@ router.get('/stats', authenticate, requireRole(['ADMIN']), async (req: AuthReque
 });
 
 // Get All Orders (for monitoring)
-router.get('/orders/all', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+router.get('/orders/all', authenticate, requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
+        const orderType = typeof req.query.orderType === 'string' ? req.query.orderType.toUpperCase() : '';
+        const requestedLimit = parseInt(String(req.query.limit || '200'), 10);
+        const limit = Number.isFinite(requestedLimit)
+            ? Math.max(1, Math.min(500, requestedLimit))
+            : 200;
+        const whereClause: any = { cafeId };
+        if (['DINE_IN', 'PRE_ORDER', 'TAKEAWAY'].includes(orderType)) {
+            whereClause.orderType = orderType;
+        }
+
         const orders = await (prisma.order as any).findMany({
-            where: { cafeId },
+            where: whereClause,
             include: {
                 session: {
-                    include: { table: true }
+                    include: {
+                        table: true,
+                        customer: {
+                            select: { id: true, name: true, email: true, phoneNumber: true },
+                        },
+                    },
                 },
                 waiter: {
                     select: { name: true }
                 },
                 chef: {
                     select: { name: true }
-                }
+                },
+                payment: {
+                    select: {
+                        id: true,
+                        amount: true,
+                        status: true,
+                        provider: true,
+                        paymentStage: true,
+                        transactionId: true,
+                        providerOrderId: true,
+                        providerPaymentId: true,
+                        capturedAt: true,
+                        createdAt: true,
+                        updatedAt: true,
+                    },
+                },
             },
             orderBy: { createdAt: 'desc' },
-            take: 50
+            take: limit,
         });
-        res.json(orders);
+        const enrichedOrders = (orders as any[]).map((order) => {
+            let parsedItems: any[] = [];
+            try {
+                const items = JSON.parse(order.items || '[]');
+                if (Array.isArray(items)) parsedItems = items;
+            } catch {
+                parsedItems = [];
+            }
+
+            const orderTypeLabel = order.orderType === 'PRE_ORDER'
+                ? 'PREORDER'
+                : order.orderType === 'TAKEAWAY'
+                    ? 'TAKEAWAY'
+                    : 'QR_ORDER';
+
+            return {
+                ...order,
+                parsedItems,
+                orderTypeLabel,
+            };
+        });
+
+        res.json(enrichedOrders);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch all orders' });
     }
 });
 
-// Admin: Get all staff (Waiters/Chefs)
+// Admin: Get all staff (Waiters/Chefs/Managers)
 router.get('/staff', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
         const staff = await prisma.user.findMany({
-            where: { cafeId, role: { in: ['WAITER', 'CHEF'] } },
+            where: { cafeId, role: { in: ['WAITER', 'CHEF', 'MANAGER'] } },
             select: { id: true, name: true, email: true, role: true, isActive: true, createdAt: true }
         });
         res.json(staff);
@@ -328,7 +499,7 @@ router.delete('/staff/:id', authenticate, requireRole(['ADMIN']), async (req: Au
 // Admin: Update Cafe Profile
 router.put('/cafe-profile', authenticate, requireRole(['ADMIN']), validate(profileUpdateSchema), async (req: AuthRequest, res: Response) => {
     try {
-        const { name, address, logoUrl, coverImage, galleryImages } = req.body;
+        const { name, address, contactPhone, logoUrl, coverImage, galleryImages } = req.body;
         const cafeId = req.user!.cafeId;
 
         const cafe = await prisma.cafe.update({
@@ -336,6 +507,7 @@ router.put('/cafe-profile', authenticate, requireRole(['ADMIN']), validate(profi
             data: { 
                 name, 
                 address, 
+                contactPhone: contactPhone === undefined ? undefined : normalizePhoneNumber(contactPhone),
                 logoUrl,
                 coverImage,
                 galleryImages,
@@ -350,7 +522,7 @@ router.put('/cafe-profile', authenticate, requireRole(['ADMIN']), validate(profi
             role: 'ADMIN',
             actionType: 'SETTINGS_UPDATE',
             message: `Updated Cafe Profile: ${name}`,
-            metadata: { name, address }
+            metadata: { name, address, contactPhone: cafe.contactPhone || null }
         });
 
         res.json(cafe);
@@ -365,17 +537,7 @@ router.get('/discovery-profile', authenticate, requireRole(['ADMIN']), async (re
         const cafeId = req.user!.cafeId;
         const cafe = await prisma.cafe.findUnique({
             where: { id: cafeId },
-            select: {
-                id: true,
-                name: true,
-                city: true,
-                latitude: true,
-                longitude: true,
-                isFeatured: true,
-                featuredPriority: true,
-                coverImage: true,
-                galleryImages: true,
-            },
+            select: discoveryProfileSelect,
         });
 
         if (!cafe) {
@@ -383,41 +545,184 @@ router.get('/discovery-profile', authenticate, requireRole(['ADMIN']), async (re
             return;
         }
 
-        res.json(cafe);
+        res.json(serializeDiscoveryProfile(cafe, req));
     } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch discovery profile';
+        if (/Unknown column|doesn't exist|does not exist|Table .* doesn't exist/i.test(message)) {
+            res.status(503).json({ error: 'Discovery profile migration is not applied. Run the latest Prisma migration and restart the backend.' });
+            return;
+        }
         res.status(500).json({ error: 'Failed to fetch discovery profile' });
     }
 });
 
 // Admin: update discovery location/featured profile
-router.put('/discovery-profile', authenticate, requireRole(['ADMIN']), validate(discoveryProfileSchema), async (req: AuthRequest, res: Response) => {
+router.put('/discovery-profile', authenticate, requireRole(['ADMIN']), handleDiscoveryUpload, async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
-        const { city, latitude, longitude, isFeatured, featuredPriority, coverImage, galleryImages } = req.body;
+        const bodyData = parseDiscoveryRequestBody(req.body);
+        const parsed = discoveryProfileSchema.safeParse(bodyData);
+        if (!parsed.success) {
+            const details = parsed.error.issues.map((issue) => ({
+                field: issue.path.join('.'),
+                message: issue.message,
+            }));
+            res.status(400).json({ error: 'Validation failed', details });
+            return;
+        }
 
-        const cafe = await prisma.cafe.update({
-            where: { id: cafeId },
-            data: {
-                city,
-                latitude: latitude ?? null,
-                longitude: longitude ?? null,
-                isFeatured: typeof isFeatured === 'boolean' ? isFeatured : undefined,
-                featuredPriority: typeof featuredPriority === 'number' ? featuredPriority : undefined,
-                coverImage: coverImage !== undefined ? coverImage : undefined,
-                galleryImages: galleryImages !== undefined ? galleryImages : undefined,
-                updatedBy: req.user?.id,
-            },
-            select: {
-                id: true,
-                name: true,
-                city: true,
-                latitude: true,
-                longitude: true,
-                isFeatured: true,
-                featuredPriority: true,
-                coverImage: true,
-                galleryImages: true,
-            },
+        const {
+            city,
+            contactPhone,
+            googleMapsUrl,
+            latitude,
+            longitude,
+            isFeatured,
+            featuredPriority,
+            clearCoordinates,
+            clearCoverImage,
+            coverImage,
+            galleryImages,
+            legacyGalleryImages,
+            removeGalleryAssetIds,
+        } = parsed.data;
+
+        const fileMap = (req.files || {}) as Record<string, Express.Multer.File[]>;
+        const coverUpload = fileMap.coverImage?.[0] ? await compressDiscoveryImage(fileMap.coverImage[0], 'COVER') : null;
+        const galleryUploads = await Promise.all(
+            (fileMap.galleryImages || []).map((file) => compressDiscoveryImage(file, 'GALLERY'))
+        );
+
+        let locationUpdate: {
+            googleMapsUrl?: string | null;
+            latitude?: number | null;
+            longitude?: number | null;
+        } = {};
+
+        if (clearCoordinates) {
+            locationUpdate = {
+                googleMapsUrl: null,
+                latitude: null,
+                longitude: null,
+            };
+        } else if (typeof googleMapsUrl === 'string' && googleMapsUrl.trim()) {
+            const parsedMaps = await parseGoogleMapsLink(googleMapsUrl);
+            locationUpdate = {
+                googleMapsUrl: parsedMaps.normalizedUrl,
+                latitude: parsedMaps.latitude,
+                longitude: parsedMaps.longitude,
+            };
+        } else {
+            if (googleMapsUrl === null) locationUpdate.googleMapsUrl = null;
+            if (latitude !== undefined) locationUpdate.latitude = latitude;
+            if (longitude !== undefined) locationUpdate.longitude = longitude;
+        }
+
+        const nextLegacyGalleryImages = Array.isArray(legacyGalleryImages)
+            ? legacyGalleryImages
+            : galleryImages !== undefined
+                ? parseLegacyGalleryImages(galleryImages)
+                : undefined;
+
+        const cafe = await prisma.$transaction(async (tx) => {
+            const existingCafe = await tx.cafe.findUnique({
+                where: { id: cafeId },
+                select: {
+                    id: true,
+                },
+            });
+
+            if (!existingCafe) {
+                throw new Error('Cafe not found');
+            }
+
+            if (clearCoverImage || coverImage === null || coverUpload) {
+                await tx.cafeDiscoveryAsset.deleteMany({
+                    where: {
+                        cafeId,
+                        kind: 'COVER',
+                    },
+                });
+            }
+
+            if (Array.isArray(removeGalleryAssetIds) && removeGalleryAssetIds.length > 0) {
+                await tx.cafeDiscoveryAsset.deleteMany({
+                    where: {
+                        cafeId,
+                        kind: 'GALLERY',
+                        id: { in: removeGalleryAssetIds },
+                    },
+                });
+            }
+
+            if (coverUpload) {
+                await tx.cafeDiscoveryAsset.create({
+                    data: {
+                        cafeId,
+                        kind: 'COVER',
+                        sortOrder: 0,
+                        mimeType: coverUpload.mimeType,
+                        originalName: coverUpload.originalName,
+                        byteSize: coverUpload.byteSize,
+                        data: coverUpload.data,
+                        createdBy: req.user?.id,
+                        updatedBy: req.user?.id,
+                    },
+                });
+            }
+
+            if (galleryUploads.length > 0) {
+                const maxSortOrder = await tx.cafeDiscoveryAsset.aggregate({
+                    where: {
+                        cafeId,
+                        kind: 'GALLERY',
+                    },
+                    _max: { sortOrder: true },
+                });
+
+                let nextSortOrder = (maxSortOrder._max.sortOrder ?? -1) + 1;
+                for (const galleryUpload of galleryUploads) {
+                    await tx.cafeDiscoveryAsset.create({
+                        data: {
+                            cafeId,
+                            kind: 'GALLERY',
+                            sortOrder: nextSortOrder,
+                            mimeType: galleryUpload.mimeType,
+                            originalName: galleryUpload.originalName,
+                            byteSize: galleryUpload.byteSize,
+                            data: galleryUpload.data,
+                            createdBy: req.user?.id,
+                            updatedBy: req.user?.id,
+                        },
+                    });
+                    nextSortOrder += 1;
+                }
+            }
+
+            return tx.cafe.update({
+                where: { id: cafeId },
+                data: {
+                    city,
+                    contactPhone: contactPhone === undefined ? undefined : normalizePhoneNumber(contactPhone),
+                    ...locationUpdate,
+                    isFeatured: typeof isFeatured === 'boolean' ? isFeatured : undefined,
+                    featuredPriority: typeof featuredPriority === 'number' ? featuredPriority : undefined,
+                    coverImage: coverUpload
+                        ? null
+                        : coverImage !== undefined
+                            ? coverImage
+                            : clearCoverImage
+                                ? null
+                                : undefined,
+                    galleryImages: nextLegacyGalleryImages !== undefined
+                        ? (nextLegacyGalleryImages.length > 0 ? nextLegacyGalleryImages.join(',') : null)
+                        : galleryImages === null
+                            ? null
+                            : undefined,
+                    updatedBy: req.user?.id,
+                },
+                select: discoveryProfileSelect,
+            });
         });
 
         recordActivity({
@@ -426,17 +731,40 @@ router.put('/discovery-profile', authenticate, requireRole(['ADMIN']), validate(
             role: 'ADMIN',
             actionType: 'SETTINGS_UPDATE',
             message: 'Updated discovery profile',
-            metadata: { city, latitude, longitude, isFeatured, featuredPriority, coverImage, galleryImages },
+            metadata: {
+                city,
+                contactPhone: cafe.contactPhone || null,
+                latitude: cafe.latitude,
+                longitude: cafe.longitude,
+                isFeatured,
+                featuredPriority,
+                mapsUrlProvided: Boolean(googleMapsUrl),
+                coverUploaded: Boolean(coverUpload),
+                galleryUploadedCount: galleryUploads.length,
+                removedGalleryCount: removeGalleryAssetIds?.length || 0,
+            },
         });
 
-        res.json({ message: 'Discovery profile updated', cafe });
+        res.json({ message: 'Discovery profile updated', cafe: serializeDiscoveryProfile(cafe, req) });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to update discovery profile' });
+        const message = error instanceof Error ? error.message : 'Failed to update discovery profile';
+        const status = message === 'Cafe not found'
+            ? 404
+            : /Unknown column|doesn't exist|does not exist|Table .* doesn't exist/i.test(message)
+                ? 503
+            : /Google Maps|Paste a valid|Only JPG|Could not extract|Invalid JSON|http or https/i.test(message)
+                ? 400
+                : 500;
+        res.status(status).json({
+            error: status === 503
+                ? 'Discovery profile migration is not applied. Run the latest Prisma migration and restart the backend.'
+                : message,
+        });
     }
 });
 
 // Admin: Toggle all items in a category
-router.put('/menu/category/:category/toggle', authenticate, requireRole(['ADMIN']), validate(categoryToggleSchema), async (req: AuthRequest, res: Response) => {
+router.put('/menu/category/:category/toggle', authenticate, requireRole(['ADMIN', 'MANAGER']), validate(categoryToggleSchema), async (req: AuthRequest, res: Response) => {
     try {
         const category = req.params.category as string;
         const cafeId = req.user!.cafeId;
@@ -472,7 +800,7 @@ router.put('/menu/category/:category/toggle', authenticate, requireRole(['ADMIN'
 });
 
 // Admin: Daily Sales Report with date range
-router.get('/report', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+router.get('/report', authenticate, requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
         const { from, to } = req.query;
@@ -575,7 +903,7 @@ router.get('/report', authenticate, requireRole(['ADMIN']), async (req: AuthRequ
 });
 
 // Admin: Get Detailed Audit Log for a Specific Order
-router.get('/orders/:id/audit', authenticate, requireRole(['ADMIN']), async (req: AuthRequest, res: Response) => {
+router.get('/orders/:id/audit', authenticate, requireRole(['ADMIN', 'MANAGER']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
         const { id } = req.params;

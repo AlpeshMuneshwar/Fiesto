@@ -269,14 +269,20 @@ export default function DashboardScreen(props) {
     const [refreshing, setRefreshing] = useState(false);
     const [isHistoryVisible, setIsHistoryVisible] = useState(false);
     const [activeHistoryTab, setActiveHistoryTab] = useState('ALL'); // ALL, CUSTOMER, KITCHEN, ORDERS
+    const [modeBlockedMessage, setModeBlockedMessage] = useState('');
 
     const fetchReadyOrders = async () => {
         try {
             setLoading(true);
             const res = await client.get('/order-waiter/active-waiter');
             setReadyOrders(res.data);
+            setModeBlockedMessage('');
         } catch (e) {
             console.error('Fetch Ready Orders Error', e);
+            const code = e?.response?.data?.code;
+            if (code === 'APP_DISABLED_BY_MODE') {
+                setModeBlockedMessage(e?.response?.data?.error || 'Direct Admin Management mode is enabled.');
+            }
         } finally {
             setLoading(false);
         }
@@ -306,9 +312,30 @@ export default function DashboardScreen(props) {
 
     const onRefresh = async () => {
         setRefreshing(true);
-        await Promise.all([fetchReadyOrders(), reFetch()]);
-        setRefreshing(false);
+        try {
+            await Promise.all([fetchReadyOrders(), reFetch()]);
+        } finally {
+            setRefreshing(false);
+        }
     };
+
+    if (modeBlockedMessage) {
+        return (
+            <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+                <StatusBar style="dark" />
+                <View style={styles.modeBlockedWrap}>
+                    <Text style={styles.modeBlockedTitle}>Waiter App Inactive</Text>
+                    <Text style={styles.modeBlockedText}>{modeBlockedMessage}</Text>
+                    <TouchableOpacity style={styles.modeBlockedBtn} onPress={onRefresh}>
+                        <Text style={styles.modeBlockedBtnText}>Retry</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.modeBlockedBtn, styles.modeBlockedBtnSecondary]} onPress={logout}>
+                        <Text style={styles.modeBlockedBtnSecondaryText}>Logout</Text>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     const handleApprove = async (orderId) => {
         try {
@@ -665,4 +692,11 @@ const styles = StyleSheet.create({
     modalTitle: { flex: 1, fontSize: 20, fontWeight: '900', color: '#0F172A', letterSpacing: -0.5 },
     closeBtn: { backgroundColor: '#F8FAFC', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 14 },
     closeBtnText: { color: '#0F172A', fontWeight: '800', fontSize: 14 },
+    modeBlockedWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+    modeBlockedTitle: { color: '#0F172A', fontSize: 30, fontWeight: '900', marginBottom: 12, textAlign: 'center' },
+    modeBlockedText: { color: '#475569', fontSize: 16, lineHeight: 24, textAlign: 'center', marginBottom: 24 },
+    modeBlockedBtn: { width: '100%', backgroundColor: '#0F172A', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginBottom: 10 },
+    modeBlockedBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
+    modeBlockedBtnSecondary: { backgroundColor: '#FFF1F2', borderWidth: 1, borderColor: '#FECACA' },
+    modeBlockedBtnSecondaryText: { color: '#B91C1C', fontWeight: '800', fontSize: 15 },
 });

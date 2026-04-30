@@ -10,7 +10,7 @@ const router = Router();
  * GET /api/table-management/status
  * Returns all tables with their active session details (including Join Code/Password)
  */
-router.get('/status', authenticate, requireRole(['WAITER', 'CHEF', 'ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.get('/status', authenticate, requireRole(['WAITER', 'CHEF', 'MANAGER', 'ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
     const cafeId = req.user!.cafeId;
     
     const tables = await prisma.table.findMany({
@@ -38,7 +38,7 @@ router.get('/status', authenticate, requireRole(['WAITER', 'CHEF', 'ADMIN']), as
  * POST /api/table-management/clear/:tableId
  * Manually end any active sessions on a specific table (e.g., table cleaned)
  */
-router.post('/clear/:tableId', authenticate, requireRole(['WAITER', 'ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/clear/:tableId', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
     const tableId = req.params.tableId as string;
     const cafeId = req.user!.cafeId;
 

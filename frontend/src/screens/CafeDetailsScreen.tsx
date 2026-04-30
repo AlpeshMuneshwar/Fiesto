@@ -21,6 +21,7 @@ import {
     Clock,
     Mail,
     MapPin,
+    Phone,
     Search,
     User,
 } from 'lucide-react-native';
@@ -28,7 +29,9 @@ import client from '../api/client';
 
 const PROFILE_NAME_KEY = 'customerName';
 const PROFILE_EMAIL_KEY = 'customerEmail';
+const PROFILE_PHONE_KEY = 'customerPhone';
 const QUICK_DURATION_OPTIONS = [30, 45, 60, 90, 120];
+const BLOCKING_ORDER_STATUSES = ['PENDING_APPROVAL', 'RECEIVED', 'PREPARING', 'READY', 'AWAITING_PICKUP'];
 
 function pad(value: number) {
     return String(value).padStart(2, '0');
@@ -64,6 +67,41 @@ function formatWindow(startAt: Date | string, durationMinutes: number) {
     return `${start.toLocaleDateString()} ${toTimeLabel(start)} - ${toTimeLabel(end)}`;
 }
 
+function isBlockingBookingForCafe(booking: any, cafeId?: string) {
+    if (!booking || !cafeId || booking.cafeId !== cafeId) {
+        return false;
+    }
+
+    if (['MISSED', 'COMPLETED'].includes(booking.reservationStatus)) {
+        return false;
+    }
+
+    if (['AWAITING_APPROVAL', 'APPROVED_PAYMENT_PENDING', 'APPROVED_PAYMENT_COMPLETED'].includes(booking.approvalDisplayStatus)) {
+        return true;
+    }
+
+    if (['QUEUED', 'READY_FOR_CHECKIN', 'CHECKED_IN', 'ACTIVE'].includes(booking.reservationStatus)) {
+        return true;
+    }
+
+    const latestStatus = booking.latestOrder?.status;
+    return Boolean(latestStatus && BLOCKING_ORDER_STATUSES.includes(latestStatus));
+}
+
+function formatBlockingBookingText(booking: any) {
+    const slotTimeRaw = booking?.slotStartAt || booking?.scheduledAt || booking?.session?.scheduledAt || booking?.createdAt || null;
+    const slotTime = slotTimeRaw ? new Date(slotTimeRaw) : null;
+    const when = slotTime && !Number.isNaN(slotTime.getTime()) ? slotTime.toLocaleString() : '--';
+    const status = String(
+        booking?.approvalDisplayStatus
+        || booking?.latestOrder?.status
+        || booking?.status
+        || booking?.reservationStatus
+        || 'PENDING'
+    ).replace(/_/g, ' ');
+    return `You already have a booking at this cafe (${status}). Scheduled around ${when}. Complete or cancel it before creating another booking.`;
+}
+
 export default function CafeDetailsScreen({ route, navigation }: any) {
     const cafe = route.params?.cafe;
     const oneHourLater = useMemo(() => {
@@ -92,7 +130,8 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
 
     const [customerName, setCustomerName] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
-    const [authIdentity, setAuthIdentity] = useState<{ name?: string; email?: string } | null>(null);
+    const [customerPhone, setCustomerPhone] = useState('');
+    const [authIdentity, setAuthIdentity] = useState<{ name?: string; email?: string; phoneNumber?: string } | null>(null);
     const [editingIdentity, setEditingIdentity] = useState(false);
 
     const [menuSearch, setMenuSearch] = useState('');
@@ -103,6 +142,7 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
     const [tableLoadError, setTableLoadError] = useState<string | null>(null);
+    const [existingCafeBooking, setExistingCafeBooking] = useState<any | null>(null);
 
     const slotMinutes = useMemo(() => {
         const h = parseInt(customHours, 10) || 0;
@@ -254,10 +294,12 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
     async function load() {
         setLoading(true);
         try {
-            const [menuRes, profile, storedUserRaw] = await Promise.all([
+            const bookingsRequest = client.get('/customer/bookings').catch(() => ({ data: [] as any[] }));
+            const [menuRes, profile, storedUserRaw, bookingsRes] = await Promise.all([
                 client.get(`/menu?cafeId=${cafe.id}`),
-                AsyncStorage.multiGet([PROFILE_NAME_KEY, PROFILE_EMAIL_KEY]),
+                AsyncStorage.multiGet([PROFILE_NAME_KEY, PROFILE_EMAIL_KEY, PROFILE_PHONE_KEY]),
                 AsyncStorage.getItem('user'),
+                bookingsRequest,
             ]);
 
             let storedUser: any = null;
@@ -270,9 +312,15 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
             setMenuItems((menuRes.data || []).filter((item: any) => item.isAvailable !== false && item.isActive !== false));
             const derivedName = profile[0]?.[1] || storedUser?.name || '';
             const derivedEmail = profile[1]?.[1] || storedUser?.email || '';
+            const derivedPhone = profile[2]?.[1] || storedUser?.phoneNumber || '';
             setCustomerName(derivedName);
             setCustomerEmail(derivedEmail);
-            setAuthIdentity(storedUser ? { name: storedUser.name, email: storedUser.email } : null);
+            setCustomerPhone(derivedPhone);
+            setAuthIdentity(storedUser ? { name: storedUser.name, email: storedUser.email, phoneNumber: storedUser.phoneNumber } : null);
+
+            const customerBookings = Array.isArray((bookingsRes as any)?.data) ? (bookingsRes as any).data : [];
+            const blockingBooking = customerBookings.find((booking: any) => isBlockingBookingForCafe(booking, cafe.id)) || null;
+            setExistingCafeBooking(blockingBooking);
             await loadTables();
         } catch (error: any) {
             Alert.alert('Error', error.response?.data?.error || 'Failed to load cafe details.');
@@ -347,13 +395,19 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
 
     const finalName = (customerName || authIdentity?.name || '').trim();
     const finalEmail = (customerEmail || authIdentity?.email || '').trim().toLowerCase();
+    const finalPhone = (customerPhone || authIdentity?.phoneNumber || '').trim();
 
     async function submit() {
         setSubmitError(null);
         setSubmitSuccess(null);
 
-        if (!finalName || !finalEmail) {
-            setSubmitError('Login identity missing. Please login again or enter name/email once.');
+        if (existingCafeBooking) {
+            setSubmitError('You already have a pending or active booking at this cafe. Complete or cancel it before creating another booking.');
+            return;
+        }
+
+        if (!finalName || !finalEmail || !finalPhone) {
+            setSubmitError('Name, email, and phone are required for preorder or takeaway.');
             setEditingIdentity(true);
             return;
         }
@@ -375,6 +429,7 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
             await AsyncStorage.multiSet([
                 [PROFILE_NAME_KEY, finalName],
                 [PROFILE_EMAIL_KEY, finalEmail],
+                [PROFILE_PHONE_KEY, finalPhone],
             ]);
 
             if (plannerMode === 'takeaway') {
@@ -383,12 +438,13 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
                     specialInstructions: specialInstructions.trim() || undefined,
                     customerName: finalName,
                     customerEmail: finalEmail,
+                    customerPhone: finalPhone,
                     pickupTime: scheduledAtIso,
                 });
 
                 const queueRank = res.data.queuePosition || 0;
                 const readyTime = res.data.estimatedReadyAt ? new Date(res.data.estimatedReadyAt) : null;
-                const message = `Takeaway confirmed. Queue #${queueRank}${readyTime ? ` | Ready around ${toTimeLabel(readyTime)}` : ''}`;
+                const message = `Takeaway request submitted for owner/manager approval. Queue #${queueRank}${readyTime ? ` | Est. ready ${toTimeLabel(readyTime)}` : ''}. Pay deposit within 1 hour after approval.`;
                 setSubmitSuccess(message);
                 if (Platform.OS === 'web') window.alert(message);
             } else {
@@ -401,6 +457,7 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
                     specialInstructions: specialInstructions.trim() || undefined,
                     customerName: finalName,
                     customerEmail: finalEmail,
+                    customerPhone: finalPhone,
                 });
 
                 const queuePosition = res.data.queuePosition || 0;
@@ -408,8 +465,8 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
                 const assignedDuration = res.data.bookingDurationMinutes || slotMinutes;
                 const slotLabel = formatWindow(assignedStart, assignedDuration);
                 const message = queuePosition > 0
-                    ? `Preorder queued at rank #${queuePosition}. Assigned slot: ${slotLabel}.`
-                    : `Preorder confirmed. Your table slot: ${slotLabel}.`;
+                    ? `Preorder queued at rank #${queuePosition}. Assigned slot: ${slotLabel}. Owner/manager approval is required before payment.`
+                    : `Preorder request submitted. Your slot: ${slotLabel}. Owner/manager approval is required before payment.`;
 
                 setSubmitSuccess(message);
                 if (Platform.OS === 'web') window.alert(message);
@@ -418,6 +475,9 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
         } catch (error: any) {
             console.error('[CafeDetails submit error]', error?.response?.data || error);
             setSubmitError(error.response?.data?.error || 'Could not complete booking.');
+            if (error?.response?.data?.code === 'EXISTING_ACTIVE_BOOKING') {
+                setExistingCafeBooking((prev: any) => prev || { ...error.response.data.existingBooking, cafeId: cafe.id });
+            }
         } finally {
             setSubmitting(false);
         }
@@ -450,7 +510,7 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
                 </TouchableOpacity>
 
                 <Image
-                    source={{ uri: cafe.featuredImage || 'https://images.unsplash.com/photo-1445116572660-236099ec97a0?q=80&w=1200' }}
+                    source={{ uri: cafe.coverImage || cafe.featuredImage || 'https://images.unsplash.com/photo-1445116572660-236099ec97a0?q=80&w=1200' }}
                     style={styles.hero}
                 />
 
@@ -461,6 +521,13 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
                         <Text style={styles.metaText}>{cafe.address || cafe.city || 'Location unavailable'}</Text>
                     </View>
                 </View>
+
+                {existingCafeBooking ? (
+                    <View style={styles.activeBookingBanner}>
+                        <Text style={styles.activeBookingTitle}>Existing Booking Found</Text>
+                        <Text style={styles.activeBookingText}>{formatBlockingBookingText(existingCafeBooking)}</Text>
+                    </View>
+                ) : null}
 
                 <View style={styles.segmentRow}>
                     <TouchableOpacity style={[styles.segment, plannerMode === 'preorder' && styles.segmentActive]} onPress={() => setPlannerMode('preorder')}>
@@ -759,6 +826,7 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
                         <>
                             <View style={styles.identityRow}><User size={14} color="#64748B" /><Text style={styles.identityText}>{finalName || authIdentity.name || '-'}</Text></View>
                             <View style={styles.identityRow}><Mail size={14} color="#64748B" /><Text style={styles.identityText}>{finalEmail || authIdentity.email || '-'}</Text></View>
+                            <View style={styles.identityRow}><Phone size={14} color="#64748B" /><Text style={styles.identityText}>{finalPhone || authIdentity.phoneNumber || '-'}</Text></View>
                             <TouchableOpacity style={styles.linkBtn} onPress={() => setEditingIdentity(true)}>
                                 <Text style={styles.linkText}>Use different details</Text>
                             </TouchableOpacity>
@@ -779,6 +847,14 @@ export default function CafeDetailsScreen({ route, navigation }: any) {
                                 placeholder="Your email"
                                 placeholderTextColor="#94A3B8"
                                 autoCapitalize="none"
+                            />
+                            <TextInput
+                                style={styles.input}
+                                value={customerPhone}
+                                onChangeText={setCustomerPhone}
+                                placeholder="Your phone number"
+                                placeholderTextColor="#94A3B8"
+                                keyboardType="phone-pad"
                             />
                             {authIdentity?.email ? (
                                 <TouchableOpacity style={styles.linkBtn} onPress={() => setEditingIdentity(false)}>
@@ -895,4 +971,7 @@ const styles = StyleSheet.create({
     emptyInlineText: { color: '#64748B', fontWeight: '600', marginBottom: 8 },
     warningBox: { backgroundColor: '#FEF2F2', padding: 10, borderRadius: 8, marginTop: 10, borderWidth: 1, borderColor: '#FCA5A5' },
     warningText: { color: '#B91C1C', fontWeight: '700', fontSize: 13 },
+    activeBookingBanner: { backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FDBA74', borderRadius: 14, padding: 12, marginBottom: 10 },
+    activeBookingTitle: { color: '#9A3412', fontWeight: '900', fontSize: 12, textTransform: 'uppercase', marginBottom: 6 },
+    activeBookingText: { color: '#9A3412', fontWeight: '700', fontSize: 13, lineHeight: 20 },
 });

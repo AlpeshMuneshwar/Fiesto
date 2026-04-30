@@ -12,7 +12,7 @@ const benefits = [
 ];
 
 const accessNotes = [
-    'Use your full name, email, and password to create the customer account.',
+    'Use your full name, phone, email, and password to create the customer account.',
     'After signup, we send a verification code to activate the account.',
     'Once verified, you can log in and continue through the customer portal.',
 ];
@@ -22,6 +22,7 @@ export default function RegisterScreen({ navigation }: any) {
     const isWide = width > 980;
 
     const [name, setName] = useState('');
+    const [phoneNumber, setPhoneNumber] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -41,7 +42,7 @@ export default function RegisterScreen({ navigation }: any) {
 
     const handleRegister = async () => {
         setFormError(null);
-        if (!name.trim() || !email.trim() || !password.trim()) {
+        if (!name.trim() || !phoneNumber.trim() || !email.trim() || !password.trim()) {
             Alert.alert('Missing Info', 'Please fill in all fields.');
             return;
         }
@@ -50,7 +51,7 @@ export default function RegisterScreen({ navigation }: any) {
             return;
         }
 
-        const data = await register({ name, email, password });
+        const data = await register({ name, phoneNumber, email, password });
         if (data) {
             navigation.replace('Login', { email, showingVerification: true, loginMode: 'customer', cooldownUntil: Date.now() + 60000 });
         }
@@ -106,6 +107,16 @@ export default function RegisterScreen({ navigation }: any) {
                                         placeholderTextColor="#94A3B8"
                                         value={name}
                                         onChangeText={setName}
+                                    />
+
+                                    <Text style={styles.fieldLabel}>Phone number</Text>
+                                    <TextInput
+                                        style={styles.input}
+                                        placeholder="+91 9876543210"
+                                        placeholderTextColor="#94A3B8"
+                                        value={phoneNumber}
+                                        onChangeText={setPhoneNumber}
+                                        keyboardType="phone-pad"
                                     />
 
                                     <Text style={styles.fieldLabel}>Email address</Text>

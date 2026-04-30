@@ -7,6 +7,8 @@ import { authenticate, requireRole, AuthRequest, JWT_SECRET } from '../middlewar
 import { validate, loginSchema, registerSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, otpRequestSchema, otpVerifySchema, emailVerifySchema, customerRegisterSchema } from '../validators';
 import { asyncHandler } from '../middleware/error-handler';
 import { sendOTPEmail } from '../utils/email';
+import { evaluateRoleAccessForMode, normalizeOrderRoutingMode } from '../utils/operational-mode';
+import { normalizePhoneNumber } from '../utils/phone';
 
 const router = Router();
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
@@ -17,6 +19,36 @@ function respondAccountLocked(res: Response) {
         error: 'This account has been locked by the admin. Please contact the cafe administrator to continue.',
         accountLocked: true,
     });
+}
+
+async function respondIfBlockedByCafeMode(user: {
+    role: string;
+    cafeId: string | null;
+}, res: Response): Promise<boolean> {
+    if (!user.cafeId || (user.role !== 'WAITER' && user.role !== 'CHEF')) {
+        return false;
+    }
+
+    const settings = await prisma.cafeSettings.findUnique({
+        where: { cafeId: user.cafeId },
+        select: {
+            orderRoutingMode: true,
+            directAdminChefAppEnabled: true,
+        } as any,
+    });
+
+    const access = evaluateRoleAccessForMode(user.role, settings as any);
+    if (!access.blocked) {
+        return false;
+    }
+
+    res.status(423).json({
+        error: access.message,
+        code: access.code,
+        appDisabledByMode: true,
+        orderRoutingMode: normalizeOrderRoutingMode((settings as any)?.orderRoutingMode),
+    });
+    return true;
 }
 
 const otpCooldowns = new Map<string, number>();
@@ -93,7 +125,7 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
 
     // Staff accounts can be created and managed directly by admins.
     // Self-service roles should verify email before using password login.
-    if (!user.isEmailVerified && user.role !== 'WAITER' && user.role !== 'CHEF') {
+    if (!user.isEmailVerified && !['WAITER', 'CHEF', 'MANAGER'].includes(user.role)) {
         res.status(403).json({ 
             error: 'Email not verified. Please verify your email to login.',
             code: 'EMAIL_NOT_VERIFIED',
@@ -106,6 +138,10 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
     const isValid = await bcrypt.compare(password, user.password);
     if (!isValid) {
         res.status(401).json({ error: 'Invalid credentials' });
+        return;
+    }
+
+    if (await respondIfBlockedByCafeMode(user as any, res)) {
         return;
     }
 
@@ -132,6 +168,7 @@ router.post('/login', validate(loginSchema), asyncHandler(async (req: Request, r
             id: user.id,
             name: user.name,
             email: user.email,
+            phoneNumber: (user as any).phoneNumber || null,
             role: user.role,
             cafeId: user.cafeId,
             isEmailVerified: user.isEmailVerified
@@ -163,6 +200,11 @@ router.post('/refresh', validate(refreshTokenSchema), asyncHandler(async (req: R
     if (!user.isActive) {
         refreshTokens.delete(refreshToken);
         respondAccountLocked(res);
+        return;
+    }
+
+    if (await respondIfBlockedByCafeMode(user as any, res)) {
+        refreshTokens.delete(refreshToken);
         return;
     }
 
@@ -206,7 +248,7 @@ router.post('/logout', asyncHandler(async (req: Request, res: Response) => {
 // ==========================================
 
 router.post('/register-customer', validate(customerRegisterSchema), asyncHandler(async (req: Request, res: Response) => {
-    const { name, email, password } = req.body;
+    const { name, email, password, phoneNumber } = req.body;
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
@@ -222,6 +264,7 @@ router.post('/register-customer', validate(customerRegisterSchema), asyncHandler
         data: {
             name,
             email,
+            phoneNumber: normalizePhoneNumber(phoneNumber),
             password: hashedPassword,
             role: 'CUSTOMER',
             isEmailVerified: false,
@@ -247,6 +290,7 @@ router.post('/register-customer', validate(customerRegisterSchema), asyncHandler
         user: {
             id: user.id,
             email: user.email,
+            phoneNumber: (user as any).phoneNumber || null,
             role: user.role,
             isEmailVerified: false,
         },
@@ -416,6 +460,10 @@ router.post('/login-otp', validate(otpVerifySchema), asyncHandler(async (req: Re
         return;
     }
 
+    if (await respondIfBlockedByCafeMode(user as any, res)) {
+        return;
+    }
+
     // Success - Clear OTP
     await prisma.user.update({
         where: { id: user.id },
@@ -444,6 +492,7 @@ router.post('/login-otp', validate(otpVerifySchema), asyncHandler(async (req: Re
             id: user.id,
             name: user.name,
             email: user.email,
+            phoneNumber: (user as any).phoneNumber || null,
             role: user.role,
             cafeId: user.cafeId,
             isEmailVerified: true

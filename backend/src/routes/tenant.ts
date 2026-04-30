@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '../middleware/auth';
 import { validate, cafeRegistrationSchema } from '../validators';
 import { sendOTPEmail } from '../utils/email';
+import { platformReservationDefaults } from '../config/reservation-defaults';
 
 const router = Router();
 
@@ -42,6 +43,7 @@ router.post('/register', validate(cafeRegistrationSchema), async (req: Request, 
                     slug: cafeSlug,
                     settings: {
                         create: {
+                            ...platformReservationDefaults,
                             createdBy: 'SYSTEM_ONBOARDING',
                             updatedBy: 'SYSTEM_ONBOARDING'
                         } // Create default settings
@@ -97,7 +99,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
         
         const cafe = await prisma.cafe.findFirst({
             where: isUuid ? { id: slug } : { slug },
-            select: { id: true, name: true, logoUrl: true, address: true, isActive: true }
+            select: { id: true, name: true, logoUrl: true, address: true, contactPhone: true, isActive: true }
         });
 
         if (!cafe) {

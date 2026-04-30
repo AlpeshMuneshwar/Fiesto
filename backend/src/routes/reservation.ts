@@ -5,8 +5,15 @@ import { reservationSchema } from '../validators';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { io } from '../socket';
 import { recordActivity } from '../utils/audit';
+import { notifyStaffByRole } from '../push';
+import {
+    DEFAULT_PREORDER_PAYMENT_WINDOW_MINUTES,
+    platformReservationDefaults,
+} from '../config/reservation-defaults';
+import { BLOCKING_BOOKING_ORDER_STATUSES, isStillBlockingBooking } from '../utils/booking-blocker';
 
 const router = Router();
+const PAYMENT_WINDOW_TEXT = `${DEFAULT_PREORDER_PAYMENT_WINDOW_MINUTES} minutes`;
 
 // Used for customers to pre-book a table and optional pre-order food
 router.post('/book', authenticate, validate(reservationSchema), async (req: AuthRequest, res: Response) => {
@@ -24,8 +31,57 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
             return;
         }
 
-        if (!cafe.settings?.reservationsEnabled) {
+        if (!platformReservationDefaults.reservationsEnabled) {
             res.status(403).json({ error: 'This cafe does not accept reservations.' });
+            return;
+        }
+
+        const candidateOrders = await prisma.order.findMany({
+            where: {
+                cafeId,
+                orderType: { in: ['PRE_ORDER', 'TAKEAWAY'] },
+                status: { in: BLOCKING_BOOKING_ORDER_STATUSES },
+                session: { customerId },
+            },
+            include: {
+                session: {
+                    select: {
+                        id: true,
+                        isActive: true,
+                        isPrebooked: true,
+                        deviceIdentifier: true,
+                        joinCode: true,
+                        scheduledAt: true,
+                        slotDurationMinutes: true,
+                        createdAt: true,
+                        updatedAt: true,
+                        table: { select: { number: true } },
+                    },
+                },
+                payment: {
+                    select: { status: true },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 12,
+        }) as any[];
+
+        const existingBlocking = candidateOrders.find((order) => isStillBlockingBooking(order)) || null;
+
+        if (existingBlocking) {
+            res.status(409).json({
+                error: 'You already have a pending or active booking for this cafe. Complete or cancel it before creating another booking.',
+                code: 'EXISTING_ACTIVE_BOOKING',
+                existingBooking: {
+                    orderId: existingBlocking.id,
+                    orderType: existingBlocking.orderType,
+                    status: existingBlocking.status,
+                    paymentStatus: existingBlocking.payment?.status || null,
+                    scheduledAt: existingBlocking.session?.scheduledAt || existingBlocking.session?.createdAt || null,
+                    joinCode: existingBlocking.session?.joinCode || null,
+                    tableNumber: existingBlocking.session?.table?.number || null,
+                },
+            });
             return;
         }
 
@@ -88,15 +144,15 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
         // 2. Handle optional Pre-order
         if (items && items.length > 0) {
             const subtotal = items.reduce((sum: number, item: any) => sum + (item.price * item.quantity), 0);
-            platformFee = cafe.settings.platformFeeAmount || 10;
+            platformFee = platformReservationDefaults.platformFeeAmount;
             
             // Calculate taxes just like a normal order
-            const taxRate = cafe.settings.taxEnabled ? cafe.settings.taxRate : 0;
-            const originalTaxAmount = cafe.settings.taxInclusive ? 0 : (subtotal * taxRate) / 100;
+            const taxRate = cafe.settings?.taxEnabled ? (cafe.settings?.taxRate || 0) : 0;
+            const originalTaxAmount = cafe.settings?.taxInclusive ? 0 : (subtotal * taxRate) / 100;
             const grandTotal = subtotal + originalTaxAmount;
 
             // Calculate advance to be paid NOW (e.g. 30% of total)
-            const advanceRate = cafe.settings.preOrderAdvanceRate || 30;
+            const advanceRate = platformReservationDefaults.preOrderAdvanceRate;
             advancePaid = (grandTotal * advanceRate) / 100;
             preOrderAmount = advancePaid + platformFee;
 
@@ -107,7 +163,7 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
                     cafeId,
                     sessionId: session.id,
                     orderType: 'PRE_ORDER',
-                    status: shouldQueue ? 'PENDING_APPROVAL' : 'RECEIVED',
+                    status: 'PENDING_APPROVAL',
                     isPreorder: true,
                     items: JSON.stringify(items),
                     subtotal,
@@ -133,13 +189,16 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
                 } as any
             });
 
-            // Notify Chef room of pre-order immediately
-            if (!shouldQueue) {
-                io.to(`CHEF_${cafeId}`).emit('new_order', {
-                    ...order,
-                    session: { ...session, table }
-                });
-            }
+            io.to(`MANAGER_${cafeId}`).emit('new_order', {
+                ...order,
+                session: { ...session, table }
+            });
+            io.to(`ADMIN_${cafeId}`).emit('new_order', {
+                ...order,
+                session: { ...session, table }
+            });
+            notifyStaffByRole(cafeId, 'MANAGER', 'Preorder Approval Needed', `Reservation pre-order for Table ${table.number} needs approval.`);
+            notifyStaffByRole(cafeId, 'ADMIN', 'Preorder Approval Needed', `Reservation pre-order for Table ${table.number} needs approval.`);
         }
 
         // Audit Log for Reservation
@@ -151,10 +210,15 @@ router.post('/book', authenticate, validate(reservationSchema), async (req: Auth
         });
 
         res.json({
-            message: shouldQueue ? 'Reservation queued successfully' : 'Reservation confirmed',
+            message: shouldQueue
+                ? 'Reservation queued and preorder sent for approval.'
+                : 'Reservation confirmed. Preorder is pending owner/manager approval.',
             session,
             reservationStatus: shouldQueue ? 'QUEUED' : 'CONFIRMED',
             queuePosition: shouldQueue ? queueAhead + 1 : 0,
+            approvalRequired: Boolean(order),
+            approvalStatus: order ? 'PENDING_APPROVAL' : null,
+            paymentNotice: order ? `Please pay the deposit within ${PAYMENT_WINDOW_TEXT} after owner/manager approval.` : null,
             preOrder: order ? {
                id: order.id,
                advancePaid,

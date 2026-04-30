@@ -9,7 +9,7 @@ import { io } from '../socket';
 import { recordActivity } from '../utils/audit';
 
 // Get active orders for Waiter (READY for delivery)
-router.get('/active-waiter', authenticate, requireRole(['WAITER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
+router.get('/active-waiter', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const cafeId = req.user!.cafeId;
         const orders = await prisma.order.findMany({
@@ -27,7 +27,7 @@ router.get('/active-waiter', authenticate, requireRole(['WAITER', 'ADMIN']), asy
 });
 
 // Chef calls waiter (transitions order from READY to AWAITING_PICKUP)
-router.post('/:id/call-waiter', authenticate, requireRole(['CHEF', 'ADMIN']), async (req: AuthRequest, res: Response) => {
+router.post('/:id/call-waiter', authenticate, requireRole(['CHEF', 'MANAGER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const id = req.params.id as string;
         const cafeId = req.user!.cafeId!;
@@ -80,7 +80,7 @@ router.post('/:id/call-waiter', authenticate, requireRole(['CHEF', 'ADMIN']), as
 });
 
 // Waiter acknowledges order and is ready to deliver
-router.post('/:id/acknowledge-pickup', authenticate, requireRole(['WAITER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
+router.post('/:id/acknowledge-pickup', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const id = req.params.id as string;
         const cafeId = req.user!.cafeId!;
@@ -126,7 +126,7 @@ router.post('/:id/acknowledge-pickup', authenticate, requireRole(['WAITER', 'ADM
 });
 
 // Waiter marks order as Delivered
-router.post('/:id/deliver', authenticate, requireRole(['WAITER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
+router.post('/:id/deliver', authenticate, requireRole(['WAITER', 'MANAGER', 'ADMIN']), async (req: AuthRequest, res: Response) => {
     try {
         const id = req.params.id as string;
         const cafeId = req.user!.cafeId!;

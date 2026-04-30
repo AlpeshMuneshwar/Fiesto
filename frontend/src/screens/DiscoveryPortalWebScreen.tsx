@@ -3,6 +3,7 @@ import {
     ActivityIndicator,
     Alert,
     Image,
+    Linking,
     Modal,
     ScrollView,
     StyleSheet,
@@ -23,6 +24,8 @@ type TabKey = 'home' | 'booking' | 'profile' | 'settings';
 const TRACKERS_KEY = 'discoveryTrackers';
 const PROFILE_NAME_KEY = 'customerName';
 const PROFILE_EMAIL_KEY = 'customerEmail';
+const PROFILE_PHONE_KEY = 'customerPhone';
+const DISCOVERY_OWNER_KEY = 'discoveryOwnerId';
 
 function getIsoInOneHour() {
     return new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -40,6 +43,10 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
     const [searchText, setSearchText] = useState('');
     const [radiusKm, setRadiusKm] = useState('20');
     const [savedTrackers, setSavedTrackers] = useState<any[]>([]);
+    const [customerBookings, setCustomerBookings] = useState<any[]>([]);
+    const [bookingLoading, setBookingLoading] = useState(false);
+    const [bookingLoadError, setBookingLoadError] = useState('');
+    const [nowMs, setNowMs] = useState(Date.now());
 
     const [featuredCafes, setFeaturedCafes] = useState<any[]>([]);
     const [nearbyCafes, setNearbyCafes] = useState<any[]>([]);
@@ -64,13 +71,14 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
 
     const [customerName, setCustomerName] = useState('');
     const [customerEmail, setCustomerEmail] = useState('');
+    const [customerPhone, setCustomerPhone] = useState('');
 
     const [requestModalVisible, setRequestModalVisible] = useState(false);
     const [requestLocality, setRequestLocality] = useState('');
     const [requestNote, setRequestNote] = useState('');
 
     const handleLogout = async () => {
-        await AsyncStorage.multiRemove(['userToken', 'user', 'activeSessionId']);
+        await AsyncStorage.multiRemove(['userToken', 'user', 'activeSessionId', TRACKERS_KEY, PROFILE_NAME_KEY, PROFILE_EMAIL_KEY, PROFILE_PHONE_KEY, DISCOVERY_OWNER_KEY]);
         navigation.replace('Landing');
     };
 
@@ -78,32 +86,89 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
         bootstrap();
     }, []);
 
+    useEffect(() => {
+        if (activeTab === 'booking') {
+            loadCustomerBookings();
+        }
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (activeTab !== 'booking') {
+            return;
+        }
+
+        const interval = setInterval(() => setNowMs(Date.now()), 1000);
+        return () => clearInterval(interval);
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (activeTab !== 'booking') {
+            return;
+        }
+
+        const interval = setInterval(() => {
+            loadCustomerBookings();
+        }, 15000);
+
+        return () => clearInterval(interval);
+    }, [activeTab]);
+
     async function bootstrap() {
         try {
-            const [name, email, trackersRaw, userRaw] = await Promise.all([
+            const [name, email, phone, trackersRaw, userRaw, savedOwnerId] = await Promise.all([
                 AsyncStorage.getItem(PROFILE_NAME_KEY),
                 AsyncStorage.getItem(PROFILE_EMAIL_KEY),
+                AsyncStorage.getItem(PROFILE_PHONE_KEY),
                 AsyncStorage.getItem(TRACKERS_KEY),
                 AsyncStorage.getItem('user'),
+                AsyncStorage.getItem(DISCOVERY_OWNER_KEY),
             ]);
-            if (name) setCustomerName(name);
-            if (email) setCustomerEmail(email);
-            if ((!name || !email) && userRaw) {
+            let currentUser: any = null;
+            if (userRaw) {
                 try {
-                    const user = JSON.parse(userRaw);
-                    if (!name && user?.name) setCustomerName(user.name);
-                    if (!email && user?.email) setCustomerEmail(user.email);
+                    currentUser = JSON.parse(userRaw);
                 } catch {
-                    // Ignore parse issues for cached user payload.
+                    currentUser = null;
                 }
             }
-            if (trackersRaw) {
+
+            const currentOwnerId = currentUser?.role === 'CUSTOMER' ? String(currentUser.id || '') : '';
+            const ownerChanged = Boolean(currentOwnerId && savedOwnerId && savedOwnerId !== currentOwnerId);
+
+            if (ownerChanged) {
+                await AsyncStorage.multiRemove([TRACKERS_KEY, PROFILE_NAME_KEY, PROFILE_EMAIL_KEY, PROFILE_PHONE_KEY]);
+                setSavedTrackers([]);
+            } else if (trackersRaw) {
                 try {
                     const parsed = JSON.parse(trackersRaw);
                     setSavedTrackers(Array.isArray(parsed) ? parsed : []);
                 } catch {
                     setSavedTrackers([]);
                 }
+            }
+
+            if (currentUser?.role === 'CUSTOMER') {
+                const nextName = String(currentUser.name || '').trim();
+                const nextEmail = String(currentUser.email || '').trim().toLowerCase();
+                const nextPhone = String(currentUser.phoneNumber || '').trim();
+
+                setCustomerName(nextName);
+                setCustomerEmail(nextEmail);
+                setCustomerPhone(nextPhone);
+
+                await AsyncStorage.multiSet([
+                    [PROFILE_NAME_KEY, nextName],
+                    [PROFILE_EMAIL_KEY, nextEmail],
+                    [PROFILE_PHONE_KEY, nextPhone],
+                    [DISCOVERY_OWNER_KEY, currentOwnerId],
+                ]);
+            } else {
+                if (name) setCustomerName(name);
+                if (email) setCustomerEmail(email);
+                if (phone) setCustomerPhone(phone);
+            }
+            if (currentUser?.role === 'CUSTOMER') {
+                await loadCustomerBookings();
             }
             await detectLocation();
         } finally {
@@ -161,6 +226,137 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
         }
     }
 
+    async function loadCustomerBookings() {
+        const token = await AsyncStorage.getItem('userToken');
+        if (!token) {
+            setCustomerBookings([]);
+            setBookingLoadError('Sign in to sync preorder and takeaway updates here.');
+            return;
+        }
+
+        setBookingLoading(true);
+        setBookingLoadError('');
+        try {
+            const res = await client.get('/customer/bookings', { showErrorToast: false });
+            setCustomerBookings(Array.isArray(res.data) ? res.data : []);
+        } catch (error: any) {
+            if (error.response?.status === 401) {
+                setBookingLoadError('Your session expired. Sign in again to load synced bookings.');
+            } else {
+                setBookingLoadError(error.response?.data?.error || 'Could not load bookings right now.');
+            }
+        } finally {
+            setBookingLoading(false);
+        }
+    }
+
+    async function callPhone(phoneNumber?: string | null) {
+        if (!phoneNumber) {
+            Alert.alert('Phone unavailable', 'No restaurant phone number is available for this booking.');
+            return;
+        }
+
+        const dialable = `tel:${String(phoneNumber).replace(/[^\d+]/g, '')}`;
+        try {
+            const supported = await Linking.canOpenURL(dialable);
+            if (!supported) {
+                Alert.alert('Calling unavailable', `Use this number manually: ${phoneNumber}`);
+                return;
+            }
+            await Linking.openURL(dialable);
+        } catch {
+            Alert.alert('Calling unavailable', `Use this number manually: ${phoneNumber}`);
+        }
+    }
+
+    async function ensureRazorpayLoaded() {
+        if (typeof window === 'undefined') {
+            throw new Error('Online deposit payment is only available in the web app right now.');
+        }
+
+        if ((window as any).Razorpay) {
+            return (window as any).Razorpay;
+        }
+
+        await new Promise<void>((resolve, reject) => {
+            const existing = document.querySelector('script[data-razorpay-checkout="true"]') as HTMLScriptElement | null;
+            if (existing) {
+                existing.addEventListener('load', () => resolve(), { once: true });
+                existing.addEventListener('error', () => reject(new Error('Could not load Razorpay checkout.')), { once: true });
+                return;
+            }
+
+            const script = document.createElement('script');
+            script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+            script.async = true;
+            script.dataset.razorpayCheckout = 'true';
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error('Could not load Razorpay checkout.'));
+            document.body.appendChild(script);
+        });
+
+        if (!(window as any).Razorpay) {
+            throw new Error('Razorpay checkout did not initialize correctly.');
+        }
+
+        return (window as any).Razorpay;
+    }
+
+    async function payDeposit(booking: any) {
+        const orderId = booking?.latestOrder?.id;
+        if (!orderId) {
+            Alert.alert('Payment unavailable', 'No approved order is available for payment.');
+            return;
+        }
+
+        try {
+            const configRes = await client.get('/payment/razorpay/config');
+            if (!configRes.data?.enabled) {
+                Alert.alert('Payment unavailable', 'Razorpay is not configured on the server yet.');
+                return;
+            }
+
+            const orderRes = await client.post('/payment/razorpay/create-order', { orderId });
+            const Razorpay = await ensureRazorpayLoaded();
+
+            await new Promise<void>((resolve, reject) => {
+                const checkout = new Razorpay({
+                    key: orderRes.data?.keyId,
+                    amount: Math.round(Number(orderRes.data?.payableAmount || 0) * 100),
+                    currency: orderRes.data?.order?.currency || 'INR',
+                    order_id: orderRes.data?.order?.id,
+                    name: booking?.cafe?.name || 'Cafe',
+                    description: booking?.bookingType === 'TAKEAWAY' ? 'Takeaway deposit' : 'Preorder deposit',
+                    prefill: {
+                        name: customerName.trim() || undefined,
+                        email: customerEmail.trim() || undefined,
+                        contact: customerPhone.trim() || undefined,
+                    },
+                    handler: async (response: any) => {
+                        try {
+                            await client.post('/payment/razorpay/verify', response);
+                            await loadCustomerBookings();
+                            Alert.alert('Payment complete', 'Deposit payment captured successfully.');
+                            resolve();
+                        } catch (verifyError: any) {
+                            reject(new Error(verifyError.response?.data?.error || 'Payment verification failed.'));
+                        }
+                    },
+                    modal: {
+                        ondismiss: () => reject(new Error('Payment was cancelled.')),
+                    },
+                    theme: {
+                        color: '#0F172A',
+                    },
+                });
+
+                checkout.open();
+            });
+        } catch (error: any) {
+            Alert.alert('Payment failed', error?.message || error?.response?.data?.error || 'Could not start the deposit payment.');
+        }
+    }
+
     const visibleNearby = useMemo(() => {
         const query = searchText.trim().toLowerCase();
         if (!query) return nearbyCafes;
@@ -183,6 +379,35 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
             })
             .slice(0, 12);
     }, [nearbyCafes]);
+
+    const syncedDiscoveryBookings = useMemo(() => {
+        return [...customerBookings]
+            .filter(isDiscoveryBooking)
+            .sort((a, b) => {
+                const activeDelta = Number(isBookingLiveForCustomer(b)) - Number(isBookingLiveForCustomer(a));
+                if (activeDelta !== 0) {
+                    return activeDelta;
+                }
+
+                const aTime = new Date(a?.slotStartAt || a?.scheduledAt || a?.createdAt || 0).getTime();
+                const bTime = new Date(b?.slotStartAt || b?.scheduledAt || b?.createdAt || 0).getTime();
+                return bTime - aTime;
+            })
+            .slice(0, 6);
+    }, [customerBookings]);
+
+    const liveDiscoveryBookings = useMemo(
+        () => syncedDiscoveryBookings.filter(isBookingLiveForCustomer),
+        [syncedDiscoveryBookings]
+    );
+    const pastDiscoveryBookings = useMemo(
+        () => syncedDiscoveryBookings.filter((booking) => !isBookingLiveForCustomer(booking)),
+        [syncedDiscoveryBookings]
+    );
+    const pastDiscoveryBookingCount = useMemo(
+        () => pastDiscoveryBookings.length,
+        [pastDiscoveryBookings]
+    );
 
     const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const platformFee = selectedCafe?.settings?.platformFeeAmount || 0;
@@ -239,8 +464,8 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
 
     async function submitPlanner() {
         if (!selectedCafe) return;
-        if (!customerName.trim() || !customerEmail.trim()) {
-            Alert.alert('Missing profile', 'Enter your name and email in Profile tab first.');
+        if (!customerName.trim() || !customerEmail.trim() || !customerPhone.trim()) {
+            Alert.alert('Missing profile', 'Enter your name, phone, and email in Profile tab first.');
             setActiveTab('profile');
             return;
         }
@@ -254,6 +479,7 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
             await AsyncStorage.multiSet([
                 [PROFILE_NAME_KEY, customerName.trim()],
                 [PROFILE_EMAIL_KEY, customerEmail.trim().toLowerCase()],
+                [PROFILE_PHONE_KEY, customerPhone.trim()],
             ]);
 
             if (plannerMode === 'takeaway') {
@@ -262,6 +488,7 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
                     specialInstructions: specialInstructions.trim() || undefined,
                     customerName: customerName.trim(),
                     customerEmail: customerEmail.trim().toLowerCase(),
+                    customerPhone: customerPhone.trim(),
                     pickupTime: scheduledAt,
                 });
 
@@ -270,8 +497,9 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
                 trackers.unshift({ sessionId: res.data.session.id, cafeId: selectedCafe.id, mode: 'takeaway', cafeName: selectedCafe.name });
                 await AsyncStorage.setItem(TRACKERS_KEY, JSON.stringify(trackers.slice(0, 20)));
                 setSavedTrackers(trackers.slice(0, 20));
+                await loadCustomerBookings();
 
-                Alert.alert('Takeaway confirmed', `Queue rank #${res.data.queuePosition}`);
+                Alert.alert('Takeaway submitted', `Queue rank #${res.data.queuePosition}. Owner/manager approval is required before payment. Pay deposit within 1 hour after approval.`);
             } else {
                 if (!selectedTableId) {
                     Alert.alert('Select table', 'Choose a table first.');
@@ -287,6 +515,7 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
                     specialInstructions: specialInstructions.trim() || undefined,
                     customerName: customerName.trim(),
                     customerEmail: customerEmail.trim().toLowerCase(),
+                    customerPhone: customerPhone.trim(),
                 });
 
                 const trackersRaw = await AsyncStorage.getItem(TRACKERS_KEY);
@@ -294,8 +523,14 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
                 trackers.unshift({ sessionId: res.data.session.id, cafeId: selectedCafe.id, joinCode: res.data.joinCode, mode: 'preorder', cafeName: selectedCafe.name });
                 await AsyncStorage.setItem(TRACKERS_KEY, JSON.stringify(trackers.slice(0, 20)));
                 setSavedTrackers(trackers.slice(0, 20));
+                await loadCustomerBookings();
 
-                Alert.alert('Preorder confirmed', res.data.queuePosition > 0 ? `Queue rank #${res.data.queuePosition}` : 'Your table slot is confirmed.');
+                Alert.alert(
+                    'Preorder submitted',
+                    res.data.queuePosition > 0
+                        ? `Queue rank #${res.data.queuePosition}. Owner/manager approval is required before payment.`
+                        : 'Owner/manager approval is required before payment. Pay deposit within 1 hour after approval.'
+                );
             }
 
             setPlannerVisible(false);
@@ -383,6 +618,74 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
                 </View>
             </View>
         </TouchableOpacity>
+        );
+    };
+
+    const renderBookingCard = (booking: any) => {
+        const status = getBookingStatusTone(booking);
+        const queueText = getBookingQueueText(booking);
+        const slotLabel = booking.bookingType === 'TAKEAWAY' ? 'Pickup time' : 'Slot';
+        const bookingCodeLabel = booking.bookingType === 'TAKEAWAY' ? 'Request ID' : 'Booking code';
+        const paymentExpired = isPaymentWindowExpired(booking, nowMs);
+        const countdown = getPaymentCountdownText(booking, nowMs);
+        const canPayNow = Boolean(booking.canPayDeposit && booking.latestOrder?.id && !paymentExpired);
+        const canCallCafe = Boolean(booking.cafe?.contactPhone);
+        const showExpiredRecovery = booking.approvalDisplayStatus === 'APPROVED_PAYMENT_EXPIRED' || paymentExpired;
+        const showConfirmed = booking.approvalDisplayStatus === 'APPROVED_PAYMENT_COMPLETED';
+
+        return (
+            <View key={booking.id} style={styles.liveBookingCard}>
+                <View style={styles.liveBookingHeader}>
+                    <View style={{ flex: 1, marginRight: 10 }}>
+                        <Text style={styles.liveBookingTitle}>{booking.cafe?.name || 'Cafe'}</Text>
+                        <Text style={styles.liveBookingMeta}>
+                            {formatDiscoveryBookingType(booking.bookingType)} | {formatDateTime(booking.createdAt)}
+                        </Text>
+                    </View>
+                    <View style={[styles.liveStatusPill, { backgroundColor: status.backgroundColor, borderColor: status.borderColor }]}>
+                        <Text style={[styles.liveStatusText, { color: status.textColor }]}>{status.label}</Text>
+                    </View>
+                </View>
+
+                <Text style={styles.liveBookingDetail}>
+                    {slotLabel}: {formatBookingWindow(booking)}
+                </Text>
+                <Text style={styles.liveBookingDetail}>
+                    {booking.bookingType === 'TAKEAWAY'
+                        ? `Payment: ${booking.paymentNotice || 'Awaiting booking update.'}`
+                        : `Table: ${booking.table?.number ? `T-${booking.table.number}` : 'To be assigned on check-in'}`}
+                </Text>
+                {queueText ? <Text style={styles.liveBookingDetail}>{queueText}</Text> : null}
+                {countdown ? <Text style={styles.liveBookingTimer}>{countdown}</Text> : null}
+                {booking.paymentDeadlineAt ? (
+                    <Text style={styles.liveBookingDetail}>Deposit deadline: {formatDateTime(booking.paymentDeadlineAt)}</Text>
+                ) : null}
+                {showConfirmed ? (
+                    <Text style={styles.liveBookingConfirmed}>
+                        {booking.bookingType === 'TAKEAWAY' ? 'Takeaway confirmed.' : 'Preorder confirmed.'}
+                    </Text>
+                ) : null}
+                {booking.joinCode ? (
+                    <Text style={styles.liveBookingCode}>{bookingCodeLabel}: {booking.joinCode}</Text>
+                ) : null}
+
+                {(canPayNow || showExpiredRecovery || canCallCafe) ? (
+                    <View style={styles.liveBookingActionRow}>
+                        {canPayNow ? (
+                            <TouchableOpacity style={styles.livePayButton} onPress={() => payDeposit(booking)}>
+                                <Text style={styles.livePayButtonText}>Pay Deposit</Text>
+                            </TouchableOpacity>
+                        ) : null}
+                        {(showExpiredRecovery || (!canPayNow && canCallCafe)) ? (
+                            <TouchableOpacity style={styles.liveCallButton} onPress={() => callPhone(booking.cafe?.contactPhone)}>
+                                <Text style={styles.liveCallButtonText}>
+                                    {showExpiredRecovery ? 'Call Restaurant to Reopen' : 'Call Restaurant'}
+                                </Text>
+                            </TouchableOpacity>
+                        ) : null}
+                    </View>
+                ) : null}
+            </View>
         );
     };
 
@@ -487,24 +790,68 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
 
                         {activeTab === 'booking' && (
                             <View style={styles.placeholderCard}>
-                                <Text style={styles.placeholderTitle}>Current Booking</Text>
+                                <Text style={styles.placeholderTitle}>Bookings</Text>
                                 <Text style={styles.placeholderText}>
-                                    Track your latest preorder/takeaway confirmations. Queue rank and slot updates are also visible in Booking History.
+                                    Live preorder and takeaway requests sync here with approval, deposit, and queue status.
                                 </Text>
                                 <View style={styles.infoRow}>
-                                    <Text style={styles.infoLabel}>Saved trackers</Text>
+                                    <Text style={styles.infoLabel}>Live synced bookings</Text>
+                                    <Text style={styles.infoValue}>{liveDiscoveryBookings.length}</Text>
+                                </View>
+                                <View style={styles.infoRow}>
+                                    <Text style={styles.infoLabel}>Saved local trackers</Text>
                                     <Text style={styles.infoValue}>{savedTrackers.length}</Text>
                                 </View>
-                                {savedTrackers.slice(0, 3).map((tracker, index) => (
-                                    <View key={`${tracker.sessionId}-${index}`} style={styles.trackerCard}>
-                                        <Text style={styles.trackerTitle}>{tracker.cafeName || 'Cafe'}</Text>
+                                <View style={styles.infoRow}>
+                                    <Text style={styles.infoLabel}>Past bookings</Text>
+                                    <Text style={styles.infoValue}>{pastDiscoveryBookingCount}</Text>
+                                </View>
+                                <TouchableOpacity style={styles.secondaryAction} onPress={loadCustomerBookings} disabled={bookingLoading}>
+                                    <Text style={styles.secondaryActionText}>{bookingLoading ? 'Refreshing bookings...' : 'Refresh Booking Status'}</Text>
+                                </TouchableOpacity>
+                                {bookingLoadError ? (
+                                    <View style={styles.bookingErrorBox}>
+                                        <Text style={styles.bookingErrorText}>{bookingLoadError}</Text>
+                                    </View>
+                                ) : null}
+                                {bookingLoading && customerBookings.length === 0 ? (
+                                    <View style={styles.bookingLoader}>
+                                        <ActivityIndicator color="#0F172A" />
+                                        <Text style={styles.trackerMeta}>Loading synced bookings...</Text>
+                                    </View>
+                                ) : liveDiscoveryBookings.length === 0 ? (
+                                    <View style={styles.emptyTrackerState}>
+                                        <Text style={styles.trackerTitle}>No active preorder or takeaway requests</Text>
                                         <Text style={styles.trackerMeta}>
-                                            {tracker.mode === 'preorder' ? 'Preorder' : 'Takeaway'} | Session {String(tracker.sessionId || '').slice(0, 8)}
+                                            Completed, cancelled, and closed requests stay in Past Bookings instead of this live queue.
                                         </Text>
                                     </View>
-                                ))}
+                                ) : (
+                                    liveDiscoveryBookings.map(renderBookingCard)
+                                )}
+                                {pastDiscoveryBookings.length > 0 ? (
+                                    <>
+                                        <View style={styles.sectionHeader}>
+                                            <Text style={[styles.sectionTitle, { fontSize: 18 }]}>Recent Past Bookings</Text>
+                                        </View>
+                                        {pastDiscoveryBookings.slice(0, 3).map(renderBookingCard)}
+                                    </>
+                                ) : null}
+                                {savedTrackers.length > 0 && liveDiscoveryBookings.length === 0 ? (
+                                    savedTrackers.slice(0, 3).map((tracker, index) => (
+                                        <View key={`${tracker.sessionId}-${index}`} style={styles.trackerCard}>
+                                            <Text style={styles.trackerTitle}>{tracker.cafeName || 'Cafe'}</Text>
+                                            <Text style={styles.trackerMeta}>
+                                                {tracker.mode === 'preorder' ? 'Preorder' : 'Takeaway'} | Session {String(tracker.sessionId || '').slice(0, 8)}
+                                            </Text>
+                                        </View>
+                                    ))
+                                ) : null}
                                 <TouchableOpacity style={styles.primaryAction} onPress={() => navigation.navigate('CustomerProfile')}>
-                                    <Text style={styles.primaryActionText}>Open Booking History</Text>
+                                    <Text style={styles.primaryActionText}>Open Full Booking History</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.secondaryAction} onPress={() => navigation.navigate('CustomerProfile', { initialTab: 'History' })}>
+                                    <Text style={styles.secondaryActionText}>Open Past Bookings</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -521,6 +868,7 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
                                     <Text style={styles.infoValue}>{savedTrackers.length}</Text>
                                 </View>
                                 <TextInput style={styles.input} value={customerName} onChangeText={setCustomerName} placeholder="Your name" placeholderTextColor="#94A3B8" />
+                                <TextInput style={styles.input} value={customerPhone} onChangeText={setCustomerPhone} placeholder="Your phone number" placeholderTextColor="#94A3B8" keyboardType="phone-pad" />
                                 <TextInput style={styles.input} value={customerEmail} onChangeText={setCustomerEmail} placeholder="Your email" placeholderTextColor="#94A3B8" autoCapitalize="none" />
                                 <TouchableOpacity
                                     style={styles.primaryAction}
@@ -528,6 +876,7 @@ export default function DiscoveryPortalWebScreen({ navigation }: any) {
                                         await AsyncStorage.multiSet([
                                             [PROFILE_NAME_KEY, customerName.trim()],
                                             [PROFILE_EMAIL_KEY, customerEmail.trim().toLowerCase()],
+                                            [PROFILE_PHONE_KEY, customerPhone.trim()],
                                         ]);
                                         Alert.alert('Saved', 'Profile updated.');
                                     }}
@@ -797,6 +1146,25 @@ const styles = StyleSheet.create({
     trackerCard: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10, backgroundColor: '#FFFFFF', padding: 10, marginBottom: 8 },
     trackerTitle: { color: '#0F172A', fontWeight: '800', marginBottom: 3 },
     trackerMeta: { color: '#64748B', fontWeight: '600' },
+    liveBookingCard: { borderWidth: 1, borderColor: '#D7DEE7', backgroundColor: '#FFFFFF', padding: 12, marginBottom: 10 },
+    liveBookingHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
+    liveBookingTitle: { color: '#0F172A', fontSize: 16, fontWeight: '800', marginBottom: 3 },
+    liveBookingMeta: { color: '#64748B', fontWeight: '600', fontSize: 12 },
+    liveStatusPill: { borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
+    liveStatusText: { fontSize: 11, fontWeight: '800' },
+    liveBookingDetail: { color: '#334155', fontSize: 13, lineHeight: 20, fontWeight: '600', marginBottom: 4 },
+    liveBookingTimer: { color: '#1D4ED8', fontSize: 13, lineHeight: 20, fontWeight: '800', marginBottom: 4 },
+    liveBookingConfirmed: { color: '#15803D', fontSize: 13, lineHeight: 20, fontWeight: '800', marginBottom: 4 },
+    liveBookingCode: { color: '#0F172A', fontSize: 13, fontWeight: '800', marginTop: 2 },
+    liveBookingActionRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 },
+    livePayButton: { backgroundColor: '#0F172A', borderWidth: 1, borderColor: '#0F172A', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginRight: 8, marginBottom: 8 },
+    livePayButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+    liveCallButton: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, marginRight: 8, marginBottom: 8 },
+    liveCallButtonText: { color: '#0F172A', fontSize: 12, fontWeight: '800' },
+    bookingLoader: { borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 14, alignItems: 'center', marginBottom: 10 },
+    bookingErrorBox: { borderWidth: 1, borderColor: '#FECACA', backgroundColor: '#FFF1F2', padding: 14, marginBottom: 10 },
+    bookingErrorText: { color: '#B91C1C', fontWeight: '700', lineHeight: 20 },
+    emptyTrackerState: { borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 14, marginBottom: 10 },
     input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, color: '#0F172A', marginBottom: 10, fontWeight: '600' },
 
     primaryAction: { backgroundColor: '#0F172A', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 4 },
@@ -856,3 +1224,139 @@ const styles = StyleSheet.create({
     dangerButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF1F2', paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderColor: '#FECACA' },
     dangerButtonText: { color: '#B91C1C', fontWeight: '800', marginLeft: 8 },
 });
+
+function isDiscoveryBooking(booking: any) {
+    const bookingType = booking?.bookingType || booking?.latestOrder?.orderType;
+    return bookingType === 'PRE_ORDER' || bookingType === 'TAKEAWAY';
+}
+
+function isBookingLiveForCustomer(booking: any) {
+    if (!booking) return false;
+    if (booking.customerViewBucket) {
+        return booking.customerViewBucket === 'ACTIVE';
+    }
+    if (['MISSED', 'COMPLETED'].includes(booking.reservationStatus)) {
+        return false;
+    }
+    if (['QUEUED', 'READY_FOR_CHECKIN', 'CHECKED_IN', 'ACTIVE'].includes(booking.reservationStatus)) {
+        return true;
+    }
+
+    return ['AWAITING_APPROVAL', 'APPROVED_PAYMENT_PENDING', 'APPROVED_PAYMENT_EXPIRED', 'APPROVED_PAYMENT_COMPLETED'].includes(booking.approvalDisplayStatus);
+}
+
+function formatDiscoveryBookingType(type?: string) {
+    return type === 'TAKEAWAY' ? 'Takeaway' : 'Preorder';
+}
+
+function formatBookingWindow(booking: any) {
+    const startValue = booking?.slotStartAt || booking?.scheduledAt || booking?.createdAt;
+    if (!startValue) return '--';
+    const start = new Date(startValue);
+    if (Number.isNaN(start.getTime())) return '--';
+
+    if (booking?.bookingType === 'TAKEAWAY') {
+        return start.toLocaleString();
+    }
+
+    const endValue = booking?.slotEndAt;
+    const end = endValue ? new Date(endValue) : null;
+    const endLabel = end && !Number.isNaN(end.getTime())
+        ? end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '--';
+    return `${start.toLocaleDateString()} ${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${endLabel}`;
+}
+
+function getBookingQueueText(booking: any) {
+    if (booking?.bookingType === 'TAKEAWAY' && booking?.orderQueueRank > 0) {
+        return `Kitchen queue: #${booking.orderQueueRank}`;
+    }
+
+    if (booking?.queuePosition > 0) {
+        return `Table queue: #${booking.queuePosition}${typeof booking?.minutesUntilStart === 'number' ? ` | Starts in about ${booking.minutesUntilStart} min` : ''}`;
+    }
+
+    return booking?.paymentNotice || '';
+}
+
+function isPaymentWindowExpired(booking: any, nowMs: number) {
+    if (booking?.approvalDisplayStatus === 'APPROVED_PAYMENT_EXPIRED' || booking?.paymentExpired) {
+        return true;
+    }
+
+    if (!booking?.paymentDeadlineAt || booking?.approvalDisplayStatus !== 'APPROVED_PAYMENT_PENDING') {
+        return false;
+    }
+
+    const deadline = new Date(booking.paymentDeadlineAt).getTime();
+    return Number.isFinite(deadline) && deadline <= nowMs;
+}
+
+function getPaymentCountdownText(booking: any, nowMs: number) {
+    if (booking?.approvalDisplayStatus !== 'APPROVED_PAYMENT_PENDING' || !booking?.paymentDeadlineAt) {
+        return '';
+    }
+
+    const deadline = new Date(booking.paymentDeadlineAt).getTime();
+    if (!Number.isFinite(deadline)) {
+        return '';
+    }
+
+    const remainingMs = deadline - nowMs;
+    if (remainingMs <= 0) {
+        return 'Payment window expired. Call the restaurant to reopen it.';
+    }
+
+    return `Pay within ${formatCountdownMs(remainingMs)} before the deposit window closes.`;
+}
+
+function getBookingStatusTone(booking: any) {
+    switch (booking?.approvalDisplayStatus) {
+        case 'AWAITING_APPROVAL':
+            return { label: 'Awaiting approval', backgroundColor: '#FFF7ED', borderColor: '#FED7AA', textColor: '#9A3412' };
+        case 'APPROVED_PAYMENT_PENDING':
+            return { label: 'Approved - pay deposit', backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', textColor: '#1D4ED8' };
+        case 'APPROVED_PAYMENT_EXPIRED':
+            return { label: 'Payment expired', backgroundColor: '#FEF2F2', borderColor: '#FECACA', textColor: '#B91C1C' };
+        case 'APPROVED_PAYMENT_COMPLETED':
+            return { label: 'Deposit paid', backgroundColor: '#F0FDF4', borderColor: '#BBF7D0', textColor: '#15803D' };
+        case 'REJECTED':
+            return { label: 'Rejected', backgroundColor: '#FEF2F2', borderColor: '#FECACA', textColor: '#B91C1C' };
+        default:
+            break;
+    }
+
+    switch (booking?.reservationStatus) {
+        case 'QUEUED':
+            return { label: 'Queued', backgroundColor: '#FFF7ED', borderColor: '#FED7AA', textColor: '#C2410C' };
+        case 'READY_FOR_CHECKIN':
+            return { label: 'Ready for check-in', backgroundColor: '#EEF2FF', borderColor: '#C7D2FE', textColor: '#4338CA' };
+        case 'CHECKED_IN':
+        case 'ACTIVE':
+            return { label: 'Active', backgroundColor: '#F0FDF4', borderColor: '#BBF7D0', textColor: '#15803D' };
+        case 'MISSED':
+            return { label: 'Missed', backgroundColor: '#FEF2F2', borderColor: '#FECACA', textColor: '#B91C1C' };
+        default:
+            return { label: 'Completed', backgroundColor: '#F8FAFC', borderColor: '#CBD5E1', textColor: '#475569' };
+    }
+}
+
+function formatDateTime(value?: string | Date | null): string {
+    if (!value) return '--';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--';
+    return date.toLocaleString();
+}
+
+function formatCountdownMs(ms: number) {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+        return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+    }
+
+    return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}

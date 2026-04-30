@@ -1,0 +1,14 @@
+{
+  "tableId": "223552fd-1f88-4606-9e50-dd572159a97e",
+  "partySize": 2,
+  "scheduledAt": "2026-04-28T07:30:43.457Z",
+  "bookingDurationMinutes": 60,
+  "items": [
+    {
+      "id": "2b915363-5df7-4124-ba0d-421b3318891e",
+      "quantity": 1
+    }
+  ],
+  "customerEmail": "test@example.com",
+  "customerName": "Test User"
+}

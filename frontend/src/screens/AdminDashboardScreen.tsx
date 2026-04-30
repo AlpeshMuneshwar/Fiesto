@@ -97,6 +97,7 @@ export default function AdminDashboardScreen({ navigation }: any) {
         { title: 'Tables', count: `${tables.length} configured`, accent: '#3B82F6', onPress: () => navigation.navigate('AdminTableManagement') },
         { title: 'Menu', count: `${menu.length} items`, accent: '#A855F7', onPress: () => navigation.navigate('AdminMenuManagement') },
         { title: 'Staff', count: `${staff.length} members`, accent: '#F59E0B', onPress: () => navigation.navigate('AdminStaffManagement') },
+        { title: 'Orders', count: `${orders.length} tracked`, accent: '#2563EB', onPress: () => navigation.navigate('AdminOrders') },
         { title: 'Reports', count: 'Sales and activity', accent: '#EF4444', onPress: () => navigation.navigate('AdminReports') },
         { title: 'Settings', count: 'Cafe configuration', accent: '#10B981', onPress: () => navigation.navigate('AdminSettings') },
     ];

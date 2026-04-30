@@ -53,6 +53,12 @@ function normalizeAuthResponse(data: any) {
     return { token, refreshToken, user };
 }
 
+const TRACKERS_KEY = 'discoveryTrackers';
+const PROFILE_NAME_KEY = 'customerName';
+const PROFILE_EMAIL_KEY = 'customerEmail';
+const PROFILE_PHONE_KEY = 'customerPhone';
+const DISCOVERY_OWNER_KEY = 'discoveryOwnerId';
+
 export default function LoginScreen({ navigation, route }: any) {
     const { width } = useWindowDimensions();
     const isWide = width > 980;
@@ -81,7 +87,7 @@ export default function LoginScreen({ navigation, route }: any) {
         ? `We sent a verification code to ${email || 'your email address'}. Enter it below to activate the account.`
         : isCustomerMode
             ? 'For diners using discovery, bookings, and takeaway tracking.'
-            : 'For cafe owners, admins, waiters, chefs, and super admin accounts.';
+            : 'For cafe owners, admins, managers, waiters, chefs, and super admin accounts.';
 
     const accessNotes = showingVerification
         ? [
@@ -188,9 +194,22 @@ export default function LoginScreen({ navigation, route }: any) {
             await AsyncStorage.setItem('userRole', role);
         }
         if (auth.user) {
+            const previousOwnerId = await AsyncStorage.getItem(DISCOVERY_OWNER_KEY);
             await AsyncStorage.setItem('user', JSON.stringify(auth.user));
             if (auth.user.cafeId) {
                 await AsyncStorage.setItem('cafeId', auth.user.cafeId);
+            }
+            if (role === 'CUSTOMER') {
+                const currentOwnerId = String(auth.user.id || '');
+                if (previousOwnerId && previousOwnerId !== currentOwnerId) {
+                    await AsyncStorage.removeItem(TRACKERS_KEY);
+                }
+                await AsyncStorage.multiSet([
+                    [PROFILE_NAME_KEY, String(auth.user.name || '').trim()],
+                    [PROFILE_EMAIL_KEY, String(auth.user.email || '').trim().toLowerCase()],
+                    [PROFILE_PHONE_KEY, String(auth.user.phoneNumber || '').trim()],
+                    [DISCOVERY_OWNER_KEY, currentOwnerId],
+                ]);
             }
         }
 
@@ -205,6 +224,7 @@ export default function LoginScreen({ navigation, route }: any) {
 
         if (role === 'WAITER') navigation.replace('WaiterDashboard');
         else if (role === 'CHEF') navigation.replace('ChefDashboard');
+        else if (role === 'MANAGER') navigation.replace('ManagerDashboard');
         else if (role === 'ADMIN') navigation.replace('AdminDashboard');
         else if (role === 'SUPER_ADMIN') navigation.replace('SuperAdminDashboard');
         else if (role === 'CUSTOMER') navigation.replace('DiscoveryPortal');

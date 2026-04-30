@@ -141,7 +141,7 @@ router.get('/csv-template', (req: Request, res: Response) => {
 });
 
 // Admin: Add Menu Item
-router.post('/', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN', 'CHEF']), handleUpload, asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN', 'CHEF']), handleUpload, asyncHandler(async (req: AuthRequest, res: Response) => {
     const cafeId = req.user!.cafeId;
 
     // Robust Body Parsing: Support both direct JSON and Multipart 'data' field
@@ -187,7 +187,7 @@ router.post('/', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN', 'CHEF']), ha
 }));
 
 // Admin: Update Menu Item
-router.put('/:id', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN', 'CHEF']), handleUpload, asyncHandler(async (req: AuthRequest, res: Response) => {
+router.put('/:id', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN', 'CHEF']), handleUpload, asyncHandler(async (req: AuthRequest, res: Response) => {
     const id = req.params.id as string;
     const cafeId = req.user!.cafeId;
 
@@ -247,7 +247,7 @@ router.put('/:id', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN', 'CHEF']), 
 }));
 
 // Admin: Delete Menu Item
-router.delete('/:id', authenticate, requireRole(['ADMIN']), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.delete('/:id', authenticate, requireRole(['ADMIN', 'MANAGER']), asyncHandler(async (req: AuthRequest, res: Response) => {
     const id = req.params.id as string;
     const cafeId = req.user!.cafeId;
 
@@ -325,7 +325,7 @@ async function processExtractedItems(cafeId: string, items: any[]) {
 }
 
 // Admin: Bulk Upload via CSV
-router.post('/bulk-csv', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), anyUpload.single('file'), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/bulk-csv', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN']), anyUpload.single('file'), asyncHandler(async (req: AuthRequest, res: Response) => {
     if (!req.file) return res.status(400).json({ error: 'CSV file is required' });
     
     const cafeId = req.user!.cafeId;
@@ -341,7 +341,7 @@ router.post('/bulk-csv', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), an
 }));
 
 // Admin: Extract Menu from Image (OCR)
-router.post('/extract-image', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']), upload.single('image'), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/extract-image', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN']), upload.single('image'), asyncHandler(async (req: AuthRequest, res: Response) => {
     if (!req.file) return res.status(400).json({ error: 'Menu image is required' });
 
     const worker = await createWorker('eng');
@@ -361,7 +361,7 @@ router.post('/extract-image', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN']
 }));
 
 // Admin: Bulk Save Items (After review)
-router.post('/bulk-save', authenticate, requireRole(['ADMIN', 'SUPER_ADMIN', 'CHEF']), asyncHandler(async (req: AuthRequest, res: Response) => {
+router.post('/bulk-save', authenticate, requireRole(['ADMIN', 'MANAGER', 'SUPER_ADMIN', 'CHEF']), asyncHandler(async (req: AuthRequest, res: Response) => {
     const { items } = req.body;
     if (!Array.isArray(items)) return res.status(400).json({ error: 'Items array is required' });
 

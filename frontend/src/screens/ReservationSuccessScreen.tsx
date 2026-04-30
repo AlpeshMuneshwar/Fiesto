@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 
 export default function ReservationSuccessScreen({ route, navigation }: any) {
-    const { session, preOrder, cafeName } = route.params;
+    const { session, preOrder, cafeName, approvalRequired, paymentNotice, reservationStatus } = route.params;
     const scaleAnim = useRef(new Animated.Value(0)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -40,7 +40,16 @@ export default function ReservationSuccessScreen({ route, navigation }: any) {
 
                     <Animated.View style={{ opacity: fadeAnim, alignItems: 'center' }}>
                         <Text style={styles.successTitle}>Reservation Locked!</Text>
-                        <Text style={styles.successSubtitle}>Your table at <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>{cafeName}</Text> is ready for your arrival.</Text>
+                        <Text style={styles.successSubtitle}>
+                            Your table at <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>{cafeName}</Text> is {reservationStatus === 'QUEUED' ? 'queued' : 'ready'} for your arrival.
+                        </Text>
+
+                        {approvalRequired && (
+                            <View style={styles.approvalNotice}>
+                                <Text style={styles.approvalNoticeTitle}>Preorder Awaiting Approval</Text>
+                                <Text style={styles.approvalNoticeText}>{paymentNotice || 'Owner/manager will approve your preorder. Deposit payment opens only after approval.'}</Text>
+                            </View>
+                        )}
 
                         {/* Session Code Card */}
                         <View style={styles.codeCard}>
@@ -137,6 +146,9 @@ const styles = StyleSheet.create({
     detailValue: { fontSize: 15, color: '#F1F5F9', fontWeight: '700' },
     preOrderBadge: { backgroundColor: '#10B981', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, position: 'absolute', right: 0, top: 0 },
     preOrderBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+    approvalNotice: { width: '100%', backgroundColor: 'rgba(250, 204, 21, 0.15)', borderWidth: 1, borderColor: 'rgba(250, 204, 21, 0.35)', borderRadius: 16, padding: 14, marginBottom: 20 },
+    approvalNoticeTitle: { color: '#FDE68A', fontSize: 13, fontWeight: '800', textTransform: 'uppercase', marginBottom: 6 },
+    approvalNoticeText: { color: '#FEF3C7', fontSize: 13, lineHeight: 20, fontWeight: '600' },
 
     historyBtn: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, marginBottom: 15 },
     historyBtnText: { color: '#38BDF8', fontSize: 16, fontWeight: '700' },

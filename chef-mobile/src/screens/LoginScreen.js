@@ -40,6 +40,8 @@ export default function LoginScreen() {
             if (e.needsVerification) {
                 setShowingVerification(true);
                 Alert.alert('Verification Required', 'Please check your email for the OTP.');
+            } else if (e.code === 'APP_DISABLED_BY_MODE') {
+                Alert.alert('App Inactive', e.message || 'Direct Admin Management mode is enabled.');
             } else {
                 Alert.alert('Kitchen Login Failed', e.message || 'Check credentials');
             }

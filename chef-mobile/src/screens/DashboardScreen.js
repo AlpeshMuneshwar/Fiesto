@@ -117,6 +117,7 @@ export default function DashboardScreen() {
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [modeBlockedMessage, setModeBlockedMessage] = useState('');
     const [activeTab, setActiveTab] = useState('ACTIVE'); // ACTIVE, PAST
     const { logout } = useAuth();
     const { socket, isConnected, manualReconnect } = useSocket();
@@ -127,8 +128,14 @@ export default function DashboardScreen() {
         try {
             const response = await client.get('/order/active-chef');
             setOrders(response.data);
+            setModeBlockedMessage('');
         } catch (e) {
             console.error('Fetch Data Error', e);
+            if (e?.response?.data?.code === 'APP_DISABLED_BY_MODE') {
+                setModeBlockedMessage(e?.response?.data?.error || 'Direct Admin Management mode is enabled.');
+                setError(null);
+                return;
+            }
             setError('Failed to load orders. Please check your connection.');
         } finally {
             setLoading(false);
@@ -170,6 +177,10 @@ export default function DashboardScreen() {
             const res = await client.post(`/order/${orderId}/status`, { status });
             setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...res.data.order } : o));
         } catch (e) {
+            if (e?.response?.data?.code === 'APP_DISABLED_BY_MODE') {
+                setModeBlockedMessage(e?.response?.data?.error || 'Direct Admin Management mode is enabled.');
+                return;
+            }
             const errorMsg = e.response?.data?.error || 'Failed to update order status';
             Alert.alert('Kitchen Error', errorMsg);
             fetchOrders();
@@ -182,6 +193,10 @@ export default function DashboardScreen() {
             setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'AWAITING_PICKUP' } : o));
             Alert.alert('Success', 'Waiter has been called!');
         } catch (e) {
+            if (e?.response?.data?.code === 'APP_DISABLED_BY_MODE') {
+                setModeBlockedMessage(e?.response?.data?.error || 'Direct Admin Management mode is enabled.');
+                return;
+            }
             const errorMsg = e.response?.data?.error || 'Failed to call waiter';
             Alert.alert('Error', errorMsg);
         }
@@ -195,6 +210,24 @@ export default function DashboardScreen() {
     const pastOrders = orders.filter(o => o.status === 'DELIVERED');
 
     const filteredOrders = activeTab === 'ACTIVE' ? activeOrders : pastOrders;
+
+    if (modeBlockedMessage) {
+        return (
+            <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
+                <StatusBar style="dark" />
+                <View style={styles.modeBlockedWrap}>
+                    <Text style={styles.modeBlockedTitle}>Chef App Inactive</Text>
+                    <Text style={styles.modeBlockedText}>{modeBlockedMessage}</Text>
+                    <TouchableOpacity style={styles.modeBlockedBtn} onPress={fetchOrders}>
+                        <Text style={styles.modeBlockedBtnText}>Retry</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.modeBlockedBtn, styles.modeBlockedBtnSecondary]} onPress={logout}>
+                        <Text style={styles.modeBlockedBtnSecondaryText}>Logout</Text>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom', 'left', 'right']}>
@@ -336,5 +369,12 @@ const styles = StyleSheet.create({
     emptyText: { fontSize: 24, fontWeight: '900', color: '#9A3412', marginTop: 24, letterSpacing: -0.5 },
     emptySub: { fontSize: 16, color: '#FDBA74', marginTop: 8, fontWeight: '600' },
     assignmentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, backgroundColor: '#FFF7ED', padding: 12, borderRadius: 12 },
-    assignmentText: { fontSize: 14, color: '#9A3412', fontWeight: '700' }
+    assignmentText: { fontSize: 14, color: '#9A3412', fontWeight: '700' },
+    modeBlockedWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+    modeBlockedTitle: { color: '#7C2D12', fontSize: 30, fontWeight: '900', marginBottom: 12, textAlign: 'center' },
+    modeBlockedText: { color: '#78350F', fontSize: 16, lineHeight: 24, textAlign: 'center', marginBottom: 24 },
+    modeBlockedBtn: { width: '100%', backgroundColor: '#7C2D12', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginBottom: 10 },
+    modeBlockedBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
+    modeBlockedBtnSecondary: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+    modeBlockedBtnSecondaryText: { color: '#B91C1C', fontWeight: '800', fontSize: 15 },
 });

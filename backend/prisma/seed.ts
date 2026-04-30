@@ -55,6 +55,7 @@ async function main() {
                     taxRate: 5,
                     customerCanCallWaiter: true,
                     menuImagesEnabled: false,
+                    reservationsEnabled: true, // enable reservations
                 }
             }
         }

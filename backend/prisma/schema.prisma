@@ -19,6 +19,8 @@ model Cafe {
   galleryImages String? @db.Text
   address     String?
   city        String?
+  contactPhone String?
+  googleMapsUrl String? @db.VarChar(2048)
   latitude    Float?
   longitude   Float?
   isFeatured  Boolean  @default(false)
@@ -36,9 +38,29 @@ model Cafe {
   activityLogs ActivityLog[]
   settings    CafeSettings?
   nearbyCafeRequests NearbyCafeRequest[]
+  discoveryAssets CafeDiscoveryAsset[]
 
   createdBy   String?
   updatedBy   String?
+}
+
+model CafeDiscoveryAsset {
+  id           String   @id @default(uuid())
+  cafeId       String
+  kind         String
+  sortOrder    Int      @default(0)
+  mimeType     String
+  originalName String?  @db.VarChar(255)
+  byteSize     Int
+  data         Bytes    @db.LongBlob
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdBy    String?
+  updatedBy    String?
+
+  cafe         Cafe     @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, kind, sortOrder])
 }
 
 model NearbyCafeRequest {
@@ -64,6 +86,10 @@ model CafeSettings {
 
   // Payment Workflow: WAITER_AT_TABLE | PAY_AT_COUNTER | BOTH
   paymentMode           String  @default("WAITER_AT_TABLE")
+  // Order Routing: STANDARD | DIRECT_ADMIN_MANAGEMENT
+  orderRoutingMode      String  @default("STANDARD")
+  // In DIRECT_ADMIN_MANAGEMENT mode, optionally keep chef app active after approval
+  directAdminChefAppEnabled Boolean @default(false)
 
   // Tax & Charges
   taxEnabled            Boolean @default(false)
@@ -91,6 +117,7 @@ model CafeSettings {
   // Reservations & Pre-booking (Phase 4)
   platformFeeAmount   Float   @default(10.0)
   preOrderAdvanceRate Float   @default(40.0) // percentage for pre-booking
+  preorderPaymentWindowMinutes Int @default(60)
   reservationsEnabled Boolean @default(true)
 
   cafe                  Cafe    @relation(fields: [cafeId], references: [id])
@@ -105,8 +132,9 @@ model User {
   cafeId    String?
   name      String
   email     String   @unique
+  phoneNumber String?
   password  String
-  role      String   @default("WAITER") // SUPER_ADMIN, ADMIN, WAITER, CHEF
+  role      String   @default("WAITER") // SUPER_ADMIN, ADMIN, MANAGER, WAITER, CHEF
   isActive  Boolean  @default(true)
   pushToken String?  // Expo push notification token
   otp       String?
@@ -180,8 +208,8 @@ model Order {
   status              String   @default("PENDING_APPROVAL")
   orderType           String   @default("DINE_IN") // DINE_IN, TAKEAWAY, PRE_ORDER
   isLocationVerified  Boolean  @default(false)
-  items               String   // JSON stringified array of order items
-  specialInstructions String?  // "No onions, extra spicy"
+  items               String   @db.LongText // JSON stringified array of order items
+  specialInstructions String?  @db.Text // "No onions, extra spicy"
   
   // Pricing
   subtotal            Float    @default(0)
@@ -193,6 +221,8 @@ model Order {
   // Pre-ordering
   isPreorder          Boolean  @default(false)
   advancePaid         Float    @default(0)
+  approvedAt          DateTime?
+  approvalExpiresAt   DateTime?
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
